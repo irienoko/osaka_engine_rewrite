@@ -59,7 +59,7 @@ void Graphics_CreateShaderProgram()
     DestoryShader(fragmentShader);
 }
 
-void Graphics_ProcessShaders()
+unsigned int Graphics_GetShaderProgram()
 {
-    glUseProgram(shaderProgram);
+    return shaderProgram;
 }

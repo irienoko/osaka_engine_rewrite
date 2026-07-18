@@ -1,5 +1,6 @@
 #include "../misc/glad.h"
 #include "window.h"
+#include "graphics.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,7 +48,7 @@ GLFWwindow *Window_GetHandel()
 }
 
 
-void Window_GameLoop( void (*Graphics_ProcessShaders)(), void (*GameLoop)());
+void Window_GameLoop(void (*GameLoop)())
 {
     int width, height;
     while(!glfwWindowShouldClose(window_handel))
@@ -59,7 +60,10 @@ void Window_GameLoop( void (*Graphics_ProcessShaders)(), void (*GameLoop)());
         glEnable(GL_DEPTH_TEST);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+        glUseProgram(Graphics_GetShaderProgram());
+
         (*GameLoop)();
+
              
         glfwSwapBuffers(window_handel);
         glfwPollEvents();

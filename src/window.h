@@ -8,7 +8,7 @@ void Window_Create(int width, int height, const char *title);
 GLFWwindow *Window_GetHandel();
 
 /*Super basic Gameloop -- might change later*/
-void Window_GameLoop( void (*Graphics_ProcessShaders)(), void (*GameLoop)());
+void Window_GameLoop(void (*GameLoop)());
 
 
 #endif
