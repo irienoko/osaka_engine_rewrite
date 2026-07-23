@@ -197,23 +197,9 @@ static void _vulakn_PhysicalDevices()
     _VkResultsCheck(CreateDeviceResult, "Create Device");
 }
 
-VkCommandPool pCommandPool;
-static void _vulakn_CommandPool()
-{
-    VkCommandPoolCreateInfo CommandPoolCreateInfo =
-    {
-        VK_COMMAND_POOL_CREATE_PROTECTED_BIT,
-        NULL,
-        0x00000002, // VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
-        queueFamilyIndex
-    };
-    VkResult CreateCommandResult = vkCreateCommandPool(pDeviceHandel, &CommandPoolCreateInfo, NULL, &pCommandPool);
-    _VkResultsCheck(CreateCommandResult, "Command Pool");
-}
 
 
-
-
+VkSwapchainKHR pSwapchain;
 static void _vulakn_init()
 {
     uint32_t Vulakn_apiVersion = VK_API_VERSION_1_1;
@@ -245,21 +231,39 @@ static void _vulakn_init()
     const char** ppEnabledLayerNames = NULL;
     if(enabledLayerCount > 0) ppEnabledLayerNames = malloc(enabledLayerCount * sizeof(const char*));
 
-    VkInstanceCreateInfo instanceCreateInfo = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
-    instanceCreateInfo.pNext = NULL;
-    instanceCreateInfo.pApplicationInfo = &application_info;
-    instanceCreateInfo.enabledExtensionCount = enabledExtensionCount;
-    instanceCreateInfo.ppEnabledExtensionNames = ppEnabledExtensionNames;
-    instanceCreateInfo.enabledLayerCount = enabledLayerCount;
-    instanceCreateInfo.ppEnabledLayerNames = ppEnabledLayerNames;
+    VkInstanceCreateInfo instance_createinfo = {0};
+    instance_createinfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    instance_createinfo.pNext = NULL;
+    instance_createinfo.pApplicationInfo = &application_info;
+    instance_createinfo.enabledExtensionCount = enabledExtensionCount;
+    instance_createinfo.ppEnabledExtensionNames = ppEnabledExtensionNames;
+    instance_createinfo.enabledLayerCount = enabledLayerCount;
+    instance_createinfo.ppEnabledLayerNames = ppEnabledLayerNames;
 
 
-    VkResult instanceResult = vkCreateInstance(&instanceCreateInfo, NULL, &vkContext.instance);
+    VkResult instanceResult = vkCreateInstance(&instance_createinfo, NULL, &vkContext.instance);
     _VkResultsCheck(instanceResult, "INSTANCE_CREATE");
     _vulakn_PhysicalDevices();
 
     VkResult CreateSurfaceResult = glfwCreateWindowSurface(vkContext.instance, window, NULL, &vkContext.surface);
     _VkResultsCheck(CreateSurfaceResult, "Create surface");
+    
+    VkExtent2D vksurface_dimension = {640, 480};
+    VkSwapchainCreateInfoKHR swapchain_createInfo = {0};
+    swapchain_createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    swapchain_createInfo.surface = vkContext.surface;
+    swapchain_createInfo.minImageCount = 4;
+    swapchain_createInfo.imageFormat = VK_FORMAT_R8G8B8A8_SRGB; //might break on some dispaly things (fuck you wayland)
+    swapchain_createInfo.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+    swapchain_createInfo.imageExtent = vksurface_dimension; //look at vkGetPhysicalDeviceSurfaceCapabilitiesKHR later
+    swapchain_createInfo.imageArrayLayers = 1;
+    swapchain_createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    swapchain_createInfo.compositeAlpha = 0x00000001; //VkCompositeAlphaFlagBitsKHR.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
+    swapchain_createInfo.preTransform = 0x00000001; //VkSurfaceTransformFlagBitsKHR.VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
+    swapchain_createInfo.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+
+    VkResult createSwapResult = vkCreateSwapchainKHR(pDeviceHandel, &swapchain_createInfo, NULL, &pSwapchain);
+    _VkResultsCheck(createSwapResult, "Create Swap chain");
 
     free(ppEnabledExtensionNames);
     free(ppEnabledLayerNames);
