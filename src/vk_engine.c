@@ -101,6 +101,7 @@ static void _VkResultsCheck(VkResult result, const char *from)
 }
 
 VkDevice pDeviceHandel;
+VkSwapchainKHR pSwapchainHandel;
 uint32_t queueFamilyIndex  = 0;
 /*Device and Queues*/
 static void _vulakn_PhysicalDevices()
@@ -195,11 +196,30 @@ static void _vulakn_PhysicalDevices()
     printf("selected gpu index %u\n",SELECTED_GPU_INDEX);
     VkResult CreateDeviceResult = vkCreateDevice(pPhysicalDevices[SELECTED_GPU_INDEX], &create_info, NULL, &pDeviceHandel);
     _VkResultsCheck(CreateDeviceResult, "Create Device");
+
+    /*
+    uint32_t pSurfaceFormatCount = 0;
+    VkPhysicalDeviceSurfaceInfo2KHR physical_device_surface_info = {0};
+    physical_device_surface_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR;
+    physical_device_surface_info.surface = vkContext.surface;
+
+    
+    VkResult PhysicalDeviceSurfaceFormatCountResult = vkGetPhysicalDeviceSurfaceFormats2KHR(pPhysicalDevices[SELECTED_GPU_INDEX], &physical_device_surface_info, &pSurfaceFormatCount, NULL);
+    _VkResultsCheck(PhysicalDeviceSurfaceFormatCountResult, "Physical Device Surface Format count");
+
+    VkSurfaceFormat2KHR *pSurfaceFormats = malloc((pSurfaceFormatCount+1) * sizeof(VkSurfaceFormat2KHR));
+    for(uint32_t i = 0; i <= pSurfaceFormatCount; i++)
+    {
+        pSurfaceFormats[i].sType =VK_STRUCTURE_TYPE_SURFACE_FORMAT_2_KHR;
+        pSurfaceFormats[i].pNext = NULL;
+    }
+
+    VkResult PhysicalDeviceSurfaceFormatResult = vkGetPhysicalDeviceSurfaceFormats2KHR(pPhysicalDevices[SELECTED_GPU_INDEX], &physical_device_surface_info, &pSurfaceFormatCount, pSurfaceFormats);
+    _VkResultsCheck(PhysicalDeviceSurfaceFormatResult, "Physical Device Surface Format");*/
 }
 
 
 
-VkSwapchainKHR pSwapchain;
 static void _vulakn_init()
 {
     uint32_t Vulakn_apiVersion = VK_API_VERSION_1_1;
@@ -219,10 +239,14 @@ static void _vulakn_init()
 
     uint32_t enabledExtensionCount = 0;
     const char * const *extensions = glfwGetRequiredInstanceExtensions(&enabledExtensionCount);
-    printf("%s\n",extensions[1]);
+    uint32_t n_enabledExtensionCount = enabledExtensionCount +1;
 
-    const char **ppEnabledExtensionNames = malloc((enabledExtensionCount + 1) * sizeof(const char *));
-    memcpy(ppEnabledExtensionNames, extensions, enabledExtensionCount * sizeof(const char*)); 
+    const char *extensions_list[3] = {extensions[0], extensions[1], "VK_KHR_get_surface_capabilities2"};
+
+    const char **ppEnabledExtensionNames = malloc((n_enabledExtensionCount) * sizeof(const char *));
+    memcpy(ppEnabledExtensionNames, extensions_list, n_enabledExtensionCount * sizeof(const char*)); 
+    
+
     uint32_t enabledLayerCount = 0;
     #ifdef VGRAPHICS_VERBOSE
         enabledLayerCount++;
@@ -235,7 +259,7 @@ static void _vulakn_init()
     instance_createinfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instance_createinfo.pNext = NULL;
     instance_createinfo.pApplicationInfo = &application_info;
-    instance_createinfo.enabledExtensionCount = enabledExtensionCount;
+    instance_createinfo.enabledExtensionCount = n_enabledExtensionCount;
     instance_createinfo.ppEnabledExtensionNames = ppEnabledExtensionNames;
     instance_createinfo.enabledLayerCount = enabledLayerCount;
     instance_createinfo.ppEnabledLayerNames = ppEnabledLayerNames;
@@ -243,37 +267,45 @@ static void _vulakn_init()
 
     VkResult instanceResult = vkCreateInstance(&instance_createinfo, NULL, &vkContext.instance);
     _VkResultsCheck(instanceResult, "INSTANCE_CREATE");
-    _vulakn_PhysicalDevices();
 
     VkResult CreateSurfaceResult = glfwCreateWindowSurface(vkContext.instance, window, NULL, &vkContext.surface);
     _VkResultsCheck(CreateSurfaceResult, "Create surface");
     
+    _vulakn_PhysicalDevices();
+
+    free(ppEnabledExtensionNames);
+    free(ppEnabledLayerNames);
+}
+
+
+static void _vulkan_swapchain()
+{
     VkExtent2D vksurface_dimension = {640, 480};
     VkSwapchainCreateInfoKHR swapchain_createInfo = {0};
     swapchain_createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
     swapchain_createInfo.surface = vkContext.surface;
     swapchain_createInfo.minImageCount = 4;
-    swapchain_createInfo.imageFormat = VK_FORMAT_R8G8B8A8_SRGB; //might break on some dispaly things (fuck you wayland)
+    swapchain_createInfo.imageFormat = VK_FORMAT_B8G8R8A8_UNORM;
     swapchain_createInfo.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
     swapchain_createInfo.imageExtent = vksurface_dimension; //look at vkGetPhysicalDeviceSurfaceCapabilitiesKHR later
     swapchain_createInfo.imageArrayLayers = 1;
-    swapchain_createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    swapchain_createInfo.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     swapchain_createInfo.compositeAlpha = 0x00000001; //VkCompositeAlphaFlagBitsKHR.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
     swapchain_createInfo.preTransform = 0x00000001; //VkSurfaceTransformFlagBitsKHR.VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
-    swapchain_createInfo.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+    swapchain_createInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
 
-    VkResult createSwapResult = vkCreateSwapchainKHR(pDeviceHandel, &swapchain_createInfo, NULL, &pSwapchain);
+    VkResult createSwapResult = vkCreateSwapchainKHR(pDeviceHandel, &swapchain_createInfo, NULL, &pSwapchainHandel);
     _VkResultsCheck(createSwapResult, "Create Swap chain");
-
-    free(ppEnabledExtensionNames);
-    free(ppEnabledLayerNames);
-
 }
-
-static void _vulkan_swapchain()
+static void _vulakn_destory_swapchain()
 {
-
+    vkDestroySwapchainKHR(pDeviceHandel, pSwapchainHandel, NULL);
+    for(uint32_t i = 0; i <= 4; i++)
+    {
+        
+    }
 }
+
 static void _vulkan_initcommands()
 {
 
