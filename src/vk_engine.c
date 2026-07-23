@@ -1,5 +1,5 @@
 #define GLFW_INCLUDE_VULKAN
-#include "../misc/vulkan/vulkan.h"
+#include "vulkan/vulkan.h"
 #include <GLFW/glfw3.h>
 
 #include <stdio.h>
@@ -101,6 +101,7 @@ static void _VkResultsCheck(VkResult result, const char *from)
 }
 
 VkDevice pDeviceHandel;
+uint32_t queueFamilyIndex  = 0;
 /*Device and Queues*/
 static void _vulakn_PhysicalDevices()
 {
@@ -116,12 +117,12 @@ static void _vulakn_PhysicalDevices()
 
 
     //https://docs.vulkan.org/spec/latest/chapters/devsandqueues.html#VkPhysicalDeviceProperties2
-    VkPhysicalDeviceProperties2 pProperties;
+    VkPhysicalDeviceProperties2 pProperties = {0};
     pProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     pProperties.pNext = NULL;
 
     //https://docs.vulkan.org/spec/latest/chapters/features.html#vkGetPhysicalDeviceFeatures2
-    VkPhysicalDeviceFeatures2 pFeatures;
+    VkPhysicalDeviceFeatures2 pFeatures = {0};
     pFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     pFeatures.pNext = NULL;
 
@@ -174,50 +175,51 @@ static void _vulakn_PhysicalDevices()
     }
 
     float queuePriority = 1.0f;
-    VkDeviceQueueCreateInfo pQueueCreateInfos =
-    {
-        VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-        NULL,
-        0,
-        queueFamilyIndex,
-        1,
-        &queuePriority
-    };
+    VkDeviceQueueCreateInfo queue_create_info = {0};
+    queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queue_create_info.queueFamilyIndex = queueFamilyIndex;
+    queue_create_info.queueCount = 1;
+    queue_create_info.pQueuePriorities = &queuePriority;
     
-    VkPhysicalDeviceFeatures requiredDeviceFeatures;
-    requiredDeviceFeatures.geometryShader = VK_TRUE;
-    requiredDeviceFeatures.tessellationShader = VK_TRUE;
 
-    VkDeviceCreateInfo pCreateInfo = 
-    {
-        VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        NULL,
-        0,
-        1,
-        &pQueueCreateInfos,
-        0,
-        NULL,
-        2,
-        NULL,
-        &requiredDeviceFeatures
-    };
+
+    const char* enabled_extensions[1] = {"VK_KHR_swapchain"};
+    VkDeviceCreateInfo create_info = {0};
+    create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    create_info.queueCreateInfoCount = 1;
+    create_info.pQueueCreateInfos = &queue_create_info;
+    create_info.enabledExtensionCount = 1;
+    create_info.ppEnabledExtensionNames = enabled_extensions;
 
 
     printf("selected gpu index %u\n",SELECTED_GPU_INDEX);
-    VkResult CreateDeviceResult = vkCreateDevice(pPhysicalDevices[SELECTED_GPU_INDEX], &pCreateInfo, NULL, &pDeviceHandel);
+    VkResult CreateDeviceResult = vkCreateDevice(pPhysicalDevices[SELECTED_GPU_INDEX], &create_info, NULL, &pDeviceHandel);
     _VkResultsCheck(CreateDeviceResult, "Create Device");
 }
+
+VkCommandPool pCommandPool;
+static void _vulakn_CommandPool()
+{
+    VkCommandPoolCreateInfo CommandPoolCreateInfo =
+    {
+        VK_COMMAND_POOL_CREATE_PROTECTED_BIT,
+        NULL,
+        0x00000002, // VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
+        queueFamilyIndex
+    };
+    VkResult CreateCommandResult = vkCreateCommandPool(pDeviceHandel, &CommandPoolCreateInfo, NULL, &pCommandPool);
+    _VkResultsCheck(CreateCommandResult, "Command Pool");
+}
+
+
 
 
 static void _vulakn_init()
 {
     uint32_t Vulakn_apiVersion = VK_API_VERSION_1_1;
-    VkApplicationInfo appInfo = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
-    appInfo.pApplicationName = "Potema3D";
-    appInfo.applicationVersion = VK_MAKE_VERSION(0,0,1);
-    appInfo.pEngineName = "Potema3D engine";
-    appInfo.engineVersion = VK_MAKE_VERSION(0, 0, 1);
-    appInfo.apiVersion = Vulakn_apiVersion;
+    VkApplicationInfo application_info = {0};
+    application_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO ;
+    application_info.apiVersion = VK_API_VERSION_1_3;
 
     PFN_vkVoidFunction EnumerateInstanceVersion = vkGetInstanceProcAddr(vkContext.instance, "vkEnumerateInstanceVersion");
     if(!EnumerateInstanceVersion)
@@ -231,6 +233,7 @@ static void _vulakn_init()
 
     uint32_t enabledExtensionCount = 0;
     const char * const *extensions = glfwGetRequiredInstanceExtensions(&enabledExtensionCount);
+    printf("%s\n",extensions[1]);
 
     const char **ppEnabledExtensionNames = malloc((enabledExtensionCount + 1) * sizeof(const char *));
     memcpy(ppEnabledExtensionNames, extensions, enabledExtensionCount * sizeof(const char*)); 
@@ -244,8 +247,7 @@ static void _vulakn_init()
 
     VkInstanceCreateInfo instanceCreateInfo = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     instanceCreateInfo.pNext = NULL;
-    instanceCreateInfo.flags = 0x00000001; //VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR flag from [VkInstanceCreateFlagBits]
-    instanceCreateInfo.pApplicationInfo = &appInfo;
+    instanceCreateInfo.pApplicationInfo = &application_info;
     instanceCreateInfo.enabledExtensionCount = enabledExtensionCount;
     instanceCreateInfo.ppEnabledExtensionNames = ppEnabledExtensionNames;
     instanceCreateInfo.enabledLayerCount = enabledLayerCount;

@@ -1,13 +1,15 @@
 SOURCE_DIR 	= src
+VK_VIDEO = misc/vk_video
 BUILD_DIR	= build
 C_SOURCES	= $(wildcard $(SOURCE_DIR)/*.c)
 OBJECTS		= $(patsubst %.c, $(BUILD_DIR)/%.o, $(C_SOURCES))
 BUILD_DIRS	= $(BUILD_DIR) $(BUILD_DIR)/src
 
+
 ##############################
 # Configurable flags and names
 ##############################
-CFLAGS	= -fno-math-errno -Werror -Wno-error=missing-braces -Wno-error=strict-aliasing
+CFLAGS	= -fno-math-errno -Werror -Wno-error=missing-braces -Wno-error=strict-aliasing -std=c99
 LDFLAGS	= -g -rdynamic
 ENAME	= osaka_engine_rewrite
 TARGET	:= $(ENAME)
