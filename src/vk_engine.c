@@ -8,10 +8,52 @@
 
 #include "vk_engine.h"
 
+
+static VKAPI_ATTR VkBool32 VKAPI_CALL vulkanDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT Severity, VkDebugUtilsMessageTypeFlagsEXT sType,
+                                                         const VkDebugUtilsMessengerCallbackDataEXT* CallbackData, void*UserData)
+{
+    printf("Validaiton layer: %s\n", CallbackData->pMessage);
+    return VK_FALSE;
+}
+
+static VKAPI_ATTR VkBool32 VKAPI_CALL vulkanDebugReportCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objectType, uint64_t object,
+                                                                size_t location, int32_t messageCode, const char* pLayerPrefix, const char*pMessage, void *UserData)
+{
+    printf("Debug callback [%s]: %s\n", pLayerPrefix, pMessage);
+    return VK_FALSE;
+}
+
+
+PFN_vkCreateDebugUtilsMessengerEXT pfnVkCreateDebugUtilsMessengerEXT;
+PFN_vkDestroyDebugUtilsMessengerEXT pfnVkDestroyDebugUtilsMessengerEXT;
+PFN_vkCreateDebugReportCallbackEXT pfnCreateDebugReportCallbackEXT;
+
+VKAPI_ATTR VkResult VKAPI_CALL vkCreateDebugUtilsMessengerEXT( VkInstance                                 instance,
+                                                               const VkDebugUtilsMessengerCreateInfoEXT * pCreateInfo,
+                                                               const VkAllocationCallbacks *              pAllocator,
+                                                               VkDebugUtilsMessengerEXT *                 pMessenger )
+{
+  return pfnVkCreateDebugUtilsMessengerEXT( instance, pCreateInfo, pAllocator, pMessenger );
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL vkCreateDebugReportCallbackEXT( VkInstance                                 instance,
+                                                               const VkDebugReportCallbackCreateInfoEXT * pCreateInfo,
+                                                               const VkAllocationCallbacks *              pAllocator,
+                                                               VkDebugReportCallbackEXT *                 pMessenger )
+{
+  return pfnCreateDebugReportCallbackEXT( instance, pCreateInfo, pAllocator, pMessenger );
+}
+
+VKAPI_ATTR void VKAPI_CALL vkDestroyDebugUtilsMessengerEXT( VkInstance instance, VkDebugUtilsMessengerEXT messenger, VkAllocationCallbacks const * pAllocator )
+{
+  return pfnVkDestroyDebugUtilsMessengerEXT( instance, messenger, pAllocator );
+}
+
 static void _vulakn_init();
 static void _vulkan_swapchain();
 static void _vulkan_initcommands();
 static void _vulkan_sync_structures();
+static void _vulkan_cleanup();
 
 struct _vulkanContext
 {
@@ -44,6 +86,7 @@ void VkEngine_cleanup()
 {
     if(glfwWindowShouldClose(window))
     {
+        _vulkan_cleanup();
         glfwDestroyWindow(window);
         glfwTerminate();
     }
@@ -102,6 +145,7 @@ static void _VkResultsCheck(VkResult result, const char *from)
 
 VkDevice pDeviceHandel;
 VkSwapchainKHR pSwapchainHandel;
+//VkSurfaceFormat2KHR *pSurfaceFormats = {0};
 uint32_t queueFamilyIndex  = 0;
 /*Device and Queues*/
 static void _vulakn_PhysicalDevices()
@@ -197,17 +241,17 @@ static void _vulakn_PhysicalDevices()
     VkResult CreateDeviceResult = vkCreateDevice(pPhysicalDevices[SELECTED_GPU_INDEX], &create_info, NULL, &pDeviceHandel);
     _VkResultsCheck(CreateDeviceResult, "Create Device");
 
-    /*
+    
     uint32_t pSurfaceFormatCount = 0;
     VkPhysicalDeviceSurfaceInfo2KHR physical_device_surface_info = {0};
     physical_device_surface_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR;
     physical_device_surface_info.surface = vkContext.surface;
 
-    
+    /*
     VkResult PhysicalDeviceSurfaceFormatCountResult = vkGetPhysicalDeviceSurfaceFormats2KHR(pPhysicalDevices[SELECTED_GPU_INDEX], &physical_device_surface_info, &pSurfaceFormatCount, NULL);
     _VkResultsCheck(PhysicalDeviceSurfaceFormatCountResult, "Physical Device Surface Format count");
 
-    VkSurfaceFormat2KHR *pSurfaceFormats = malloc((pSurfaceFormatCount+1) * sizeof(VkSurfaceFormat2KHR));
+    pSurfaceFormats = malloc((pSurfaceFormatCount+1) * sizeof(VkSurfaceFormat2KHR));
     for(uint32_t i = 0; i <= pSurfaceFormatCount; i++)
     {
         pSurfaceFormats[i].sType =VK_STRUCTURE_TYPE_SURFACE_FORMAT_2_KHR;
@@ -218,8 +262,7 @@ static void _vulakn_PhysicalDevices()
     _VkResultsCheck(PhysicalDeviceSurfaceFormatResult, "Physical Device Surface Format");*/
 }
 
-
-
+VkDebugUtilsMessengerEXT pmessage;
 static void _vulakn_init()
 {
     uint32_t Vulakn_apiVersion = VK_API_VERSION_1_1;
@@ -239,13 +282,11 @@ static void _vulakn_init()
 
     uint32_t enabledExtensionCount = 0;
     const char * const *extensions = glfwGetRequiredInstanceExtensions(&enabledExtensionCount);
-    uint32_t n_enabledExtensionCount = enabledExtensionCount +1;
+    uint32_t n_enabledExtensionCount = enabledExtensionCount +2;
 
-    const char *extensions_list[3] = {extensions[0], extensions[1], "VK_KHR_get_surface_capabilities2"};
-
+    const char *extensions_list[4] = {extensions[0], extensions[1], "VK_KHR_get_surface_capabilities2", "VK_EXT_debug_utils"};
     const char **ppEnabledExtensionNames = malloc((n_enabledExtensionCount) * sizeof(const char *));
     memcpy(ppEnabledExtensionNames, extensions_list, n_enabledExtensionCount * sizeof(const char*)); 
-    
 
     uint32_t enabledLayerCount = 0;
     #ifdef VGRAPHICS_VERBOSE
@@ -268,6 +309,37 @@ static void _vulakn_init()
     VkResult instanceResult = vkCreateInstance(&instance_createinfo, NULL, &vkContext.instance);
     _VkResultsCheck(instanceResult, "INSTANCE_CREATE");
 
+    
+    pfnVkCreateDebugUtilsMessengerEXT = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(vkContext.instance, "vkCreateDebugUtilsMessengerEXT");
+    if(!pfnVkCreateDebugUtilsMessengerEXT)printf("failed to retrive vkCreateDebugUtilsMessengerEXT\n");
+
+    pfnVkDestroyDebugUtilsMessengerEXT = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(vkContext.instance, "vkDestroyDebugUtilsMessengerEXT");
+    if(!pfnVkDestroyDebugUtilsMessengerEXT)printf("failed to retrive vkDestroyDebugUtilsMessengerEXT\n");
+
+    //pfnCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(vkContext.instance, "vkCreateDebugReportCallbackEXT");
+    //if(!pfnCreateDebugReportCallbackEXT)printf("failed to retrive vkCreateDebugReportCallbackEXT\n");
+
+    VkDebugUtilsMessengerCreateInfoEXT debugutils_messenger_createinfo = {0};
+    debugutils_messenger_createinfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+    debugutils_messenger_createinfo.flags = 0;
+    debugutils_messenger_createinfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    debugutils_messenger_createinfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    debugutils_messenger_createinfo.pfnUserCallback = &vulkanDebugCallback;
+    debugutils_messenger_createinfo.pUserData = NULL;
+
+    /*
+    VkDebugReportCallbackCreateInfoEXT debugreport_callback_createinfo = {0};
+    debugreport_callback_createinfo.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
+    debugreport_callback_createinfo.flags = VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_ERROR_BIT_EXT |  VK_DEBUG_REPORT_DEBUG_BIT_EXT;
+    debugreport_callback_createinfo.pfnCallback = &vulkanDebugReportCallback;
+    debugreport_callback_createinfo.pUserData = NULL;*/
+    
+    VkResult createDebugUtilsResult = vkCreateDebugUtilsMessengerEXT(vkContext.instance, &debugutils_messenger_createinfo, NULL, &pmessage);
+    _VkResultsCheck(createDebugUtilsResult, "vkCreateDebugUtilsMessenger");
+
+    //VkDebugReportCallbackEXT pCallback;
+    //VkResult createDebugReportCallbackResult = vkCreateDebugReportCallbackEXT(vkContext.instance, &debugreport_callback_createinfo, NULL, &pCallback);
+
     VkResult CreateSurfaceResult = glfwCreateWindowSurface(vkContext.instance, window, NULL, &vkContext.surface);
     _VkResultsCheck(CreateSurfaceResult, "Create surface");
     
@@ -277,34 +349,84 @@ static void _vulakn_init()
     free(ppEnabledLayerNames);
 }
 
-
+VkImageView *pViewHandel = {0};
+uint32_t swapChainImageCount = 0;
 static void _vulkan_swapchain()
 {
     VkExtent2D vksurface_dimension = {640, 480};
     VkSwapchainCreateInfoKHR swapchain_createInfo = {0};
     swapchain_createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
     swapchain_createInfo.surface = vkContext.surface;
-    swapchain_createInfo.minImageCount = 4;
+    swapchain_createInfo.minImageCount = 3;
     swapchain_createInfo.imageFormat = VK_FORMAT_B8G8R8A8_UNORM;
     swapchain_createInfo.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
     swapchain_createInfo.imageExtent = vksurface_dimension; //look at vkGetPhysicalDeviceSurfaceCapabilitiesKHR later
     swapchain_createInfo.imageArrayLayers = 1;
-    swapchain_createInfo.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    swapchain_createInfo.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    swapchain_createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     swapchain_createInfo.compositeAlpha = 0x00000001; //VkCompositeAlphaFlagBitsKHR.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
     swapchain_createInfo.preTransform = 0x00000001; //VkSurfaceTransformFlagBitsKHR.VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
     swapchain_createInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    swapchain_createInfo.oldSwapchain = VK_NULL_HANDLE;
 
     VkResult createSwapResult = vkCreateSwapchainKHR(pDeviceHandel, &swapchain_createInfo, NULL, &pSwapchainHandel);
     _VkResultsCheck(createSwapResult, "Create Swap chain");
+
+    VkResult swapChainImageResult = vkGetSwapchainImagesKHR(pDeviceHandel, pSwapchainHandel, &swapChainImageCount, NULL);
+    _VkResultsCheck(swapChainImageResult, "vkGetSwapchainImagesKHR count");
+
+    VkImage *pSwapchainImagesHandel = malloc((swapChainImageCount+1) * sizeof(VkImage));
+    VkResult GetswapChainImageResult = vkGetSwapchainImagesKHR(pDeviceHandel, pSwapchainHandel, &swapChainImageCount, pSwapchainImagesHandel);
+    _VkResultsCheck(GetswapChainImageResult, "vkGetSwapchainImagesKHR");
+
+    //printf("%u\n",pSwapchainImagesHandel[0]);
+    pViewHandel = malloc((swapChainImageCount+1)*sizeof(VkImageView));
+    printf("%u\n",swapChainImageCount);
+    
+    for(uint32_t i = 0; i < swapChainImageCount; i++)
+    {
+        VkImageViewCreateInfo image_view_createinfo = {0};
+        image_view_createinfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        image_view_createinfo.image = pSwapchainImagesHandel[i];
+        image_view_createinfo.viewType = 1;
+        image_view_createinfo.format = VK_FORMAT_B8G8R8A8_UNORM;
+
+        image_view_createinfo.components.r = 3;
+        image_view_createinfo.components.g = 4;
+        image_view_createinfo.components.b = 5;
+        image_view_createinfo.components.a = 6;
+
+        image_view_createinfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        image_view_createinfo.subresourceRange.baseMipLevel = 0;
+        image_view_createinfo.subresourceRange.levelCount = 1;
+        image_view_createinfo.subresourceRange.baseArrayLayer = 0;
+        image_view_createinfo.subresourceRange.layerCount = 1;
+
+        VkResult CreateImageViewResult = vkCreateImageView(pDeviceHandel, &image_view_createinfo, NULL, &pViewHandel[i]);
+    }
+
+    free(pSwapchainImagesHandel);
 }
-static void _vulakn_destory_swapchain()
+
+void _vulakn_destory_swapchain()
 {
     vkDestroySwapchainKHR(pDeviceHandel, pSwapchainHandel, NULL);
-    for(uint32_t i = 0; i <= 4; i++)
+    for(uint32_t i = 0; i < swapChainImageCount; i++)
     {
-        
+        vkDestroyImageView(pDeviceHandel, pViewHandel[i], NULL);
     }
+    free(pViewHandel);
 }
+
+static void _vulkan_cleanup()
+{
+    _vulakn_destory_swapchain();
+    vkDestroySurfaceKHR(vkContext.instance, vkContext.surface, NULL);
+    vkDestroyDevice(pDeviceHandel, NULL);
+    vkDestroyDebugUtilsMessengerEXT(vkContext.instance, pmessage, NULL);
+    vkDestroyInstance(vkContext.instance, NULL);
+}
+
 
 static void _vulkan_initcommands()
 {
