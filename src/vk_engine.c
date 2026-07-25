@@ -8,6 +8,7 @@
 
 #include "vk_engine.h"
 
+#define FRAME_OVERLAP 2
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL vulkanDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT Severity, VkDebugUtilsMessageTypeFlagsEXT sType,
                                                          const VkDebugUtilsMessengerCallbackDataEXT* CallbackData, void*UserData)
@@ -22,7 +23,6 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL vulkanDebugReportCallback(VkDebugReportFla
     printf("Debug callback [%s]: %s\n", pLayerPrefix, pMessage);
     return VK_FALSE;
 }
-
 
 PFN_vkCreateDebugUtilsMessengerEXT  pfnVkCreateDebugUtilsMessengerEXT;
 PFN_vkDestroyDebugUtilsMessengerEXT pfnVkDestroyDebugUtilsMessengerEXT;
@@ -62,17 +62,26 @@ static void _vulkan_initcommands();
 static void _vulkan_sync_structures();
 static void _vulkan_cleanup();
 
-struct _vulkanContext
+struct _vulkan_instance
 {
     VkInstance instance;
     VkSurfaceKHR surface;
+    VkDebugUtilsMessengerEXT pmessage;
+    VkDebugReportCallbackEXT pCallback;
 };
+static struct _vulkan_instance vkContext = {0};
 
-struct _vulkanContext vkContext = {0};
+struct _vulakn_framedata
+{
+    VkCommandPool   _commandPool;
+    VkCommandBuffer   _mainCommandBuffer;
+};
+static struct _vulakn_framedata frame_data[FRAME_OVERLAP] = {0};
 
 GLFWwindow* window;
 void VKEngine_init()
 {
+    printf("size: %lu\n", sizeof(VkDevice));
     if(!glfwInit())
     {
         printf("failed to initialise glfw :( quitting");
@@ -183,8 +192,6 @@ static void _vulakn_PhysicalDevices()
 
     uint32_t pQueueFamilyPropertyCount = 0;
     uint32_t SELECTED_GPU_INDEX = 0;
-    uint32_t queueFamilyIndex  = 0;
-    uint32_t queueCount = 0;
 
     VkQueueFamilyProperties2 *pQueueFamilyProperties;
     /* check graphics card compatibality*/
@@ -270,8 +277,6 @@ static void _vulakn_PhysicalDevices()
     _VkResultsCheck(PhysicalDeviceSurfaceFormatResult, "Physical Device Surface Format");*/
 }
 
-VkDebugUtilsMessengerEXT pmessage;
-VkDebugReportCallbackEXT pCallback;
 static void _vulakn_init()
 {
     uint32_t Vulakn_apiVersion = VK_API_VERSION_1_1;
@@ -346,10 +351,10 @@ static void _vulakn_init()
     debugreport_callback_createinfo.pfnCallback = &vulkanDebugReportCallback;
     debugreport_callback_createinfo.pUserData = NULL;
     
-    VkResult createDebugUtilsResult = vkCreateDebugUtilsMessengerEXT(vkContext.instance, &debugutils_messenger_createinfo, NULL, &pmessage);
+    VkResult createDebugUtilsResult = vkCreateDebugUtilsMessengerEXT(vkContext.instance, &debugutils_messenger_createinfo, NULL, &vkContext.pmessage);
     _VkResultsCheck(createDebugUtilsResult, "vkCreateDebugUtilsMessenger");
 
-    VkResult createDebugReportCallbackResult = vkCreateDebugReportCallbackEXT(vkContext.instance, &debugreport_callback_createinfo, NULL, &pCallback);
+    VkResult createDebugReportCallbackResult = vkCreateDebugReportCallbackEXT(vkContext.instance, &debugreport_callback_createinfo, NULL, &vkContext.pCallback);
     _VkResultsCheck(createDebugReportCallbackResult, "vkCreateDebugReportCallbackEXT");
 
     VkResult CreateSurfaceResult = glfwCreateWindowSurface(vkContext.instance, window, NULL, &vkContext.surface);
@@ -433,16 +438,40 @@ static void _vulkan_cleanup()
 {
     _vulakn_destory_swapchain();
     vkDestroySurfaceKHR(vkContext.instance, vkContext.surface, NULL);
+
+    vkDeviceWaitIdle(pDeviceHandel);
+    for(uint32_t i = 0; i < FRAME_OVERLAP; i++)
+    {
+        vkDestroyCommandPool(pDeviceHandel, frame_data[i]._commandPool, NULL);
+    }
+
     vkDestroyDevice(pDeviceHandel, NULL);
-    vkDestroyDebugUtilsMessengerEXT(vkContext.instance, pmessage, NULL);
-    vkDestroyDebugReportCallbackEXT(vkContext.instance, pCallback, NULL);
+    vkDestroyDebugUtilsMessengerEXT(vkContext.instance, vkContext.pmessage, NULL);
+    vkDestroyDebugReportCallbackEXT(vkContext.instance, vkContext.pCallback, NULL);
     vkDestroyInstance(vkContext.instance, NULL);
 }
 
 
 static void _vulkan_initcommands()
 {
+    VkCommandPoolCreateInfo command_pool_createinfo = {0};
+    command_pool_createinfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    command_pool_createinfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    command_pool_createinfo.queueFamilyIndex = queueFamilyIndex;
 
+    for(uint32_t i = 0; i < FRAME_OVERLAP; i++)
+    {
+        VkResult createCommandPoolResult = vkCreateCommandPool(pDeviceHandel, &command_pool_createinfo, NULL, &frame_data[i]._commandPool);
+        _VkResultsCheck(createCommandPoolResult, "vkCreateCommandPool");
+
+        VkCommandBufferAllocateInfo command_bufferallo_createinfo = {0};
+        command_bufferallo_createinfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        command_bufferallo_createinfo.commandPool = frame_data[i]._commandPool;
+        command_bufferallo_createinfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        command_bufferallo_createinfo.commandBufferCount = 1;
+
+        VkResult allocateCommandBufferResult = vkAllocateCommandBuffers(pDeviceHandel, &command_bufferallo_createinfo, &frame_data[i]._mainCommandBuffer);
+    }
 }
 static void _vulkan_sync_structures()
 {
