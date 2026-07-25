@@ -24,9 +24,10 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL vulkanDebugReportCallback(VkDebugReportFla
 }
 
 
-PFN_vkCreateDebugUtilsMessengerEXT pfnVkCreateDebugUtilsMessengerEXT;
+PFN_vkCreateDebugUtilsMessengerEXT  pfnVkCreateDebugUtilsMessengerEXT;
 PFN_vkDestroyDebugUtilsMessengerEXT pfnVkDestroyDebugUtilsMessengerEXT;
-PFN_vkCreateDebugReportCallbackEXT pfnCreateDebugReportCallbackEXT;
+PFN_vkCreateDebugReportCallbackEXT  pfnCreateDebugReportCallbackEXT;
+PFN_vkDestroyDebugReportCallbackEXT pfnDestroyDebugReportCallbackEXT;
 
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateDebugUtilsMessengerEXT( VkInstance                                 instance,
                                                                const VkDebugUtilsMessengerCreateInfoEXT * pCreateInfo,
@@ -36,17 +37,23 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDebugUtilsMessengerEXT( VkInstance       
   return pfnVkCreateDebugUtilsMessengerEXT( instance, pCreateInfo, pAllocator, pMessenger );
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL vkCreateDebugReportCallbackEXT( VkInstance                                 instance,
-                                                               const VkDebugReportCallbackCreateInfoEXT * pCreateInfo,
-                                                               const VkAllocationCallbacks *              pAllocator,
-                                                               VkDebugReportCallbackEXT *                 pMessenger )
-{
-  return pfnCreateDebugReportCallbackEXT( instance, pCreateInfo, pAllocator, pMessenger );
+VKAPI_ATTR VkResult VKAPI_CALL vkCreateDebugReportCallbackEXT(
+	VkInstance instance,
+	const VkDebugReportCallbackCreateInfoEXT* pCreateInfo,
+	const VkAllocationCallbacks* pAllocator,
+	VkDebugReportCallbackEXT* pCallback
+){
+	return pfnCreateDebugReportCallbackEXT( instance, pCreateInfo, pAllocator, pCallback );
 }
 
 VKAPI_ATTR void VKAPI_CALL vkDestroyDebugUtilsMessengerEXT( VkInstance instance, VkDebugUtilsMessengerEXT messenger, VkAllocationCallbacks const * pAllocator )
 {
   return pfnVkDestroyDebugUtilsMessengerEXT( instance, messenger, pAllocator );
+}
+
+VKAPI_ATTR void VKAPI_CALL vkDestroyDebugReportCallbackEXT( VkInstance instance, VkDebugReportCallbackEXT messenger, VkAllocationCallbacks const * pAllocator )
+{
+  return pfnDestroyDebugReportCallbackEXT( instance, messenger, pAllocator );
 }
 
 static void _vulakn_init();
@@ -142,6 +149,7 @@ static void _VkResultsCheck(VkResult result, const char *from)
         break;
     }
 }
+
 
 VkDevice pDeviceHandel;
 VkSwapchainKHR pSwapchainHandel;
@@ -263,6 +271,7 @@ static void _vulakn_PhysicalDevices()
 }
 
 VkDebugUtilsMessengerEXT pmessage;
+VkDebugReportCallbackEXT pCallback;
 static void _vulakn_init()
 {
     uint32_t Vulakn_apiVersion = VK_API_VERSION_1_1;
@@ -282,9 +291,9 @@ static void _vulakn_init()
 
     uint32_t enabledExtensionCount = 0;
     const char * const *extensions = glfwGetRequiredInstanceExtensions(&enabledExtensionCount);
-    uint32_t n_enabledExtensionCount = enabledExtensionCount +2;
+    uint32_t n_enabledExtensionCount = enabledExtensionCount +3;
 
-    const char *extensions_list[4] = {extensions[0], extensions[1], "VK_KHR_get_surface_capabilities2", "VK_EXT_debug_utils"};
+    const char *extensions_list[5] = {extensions[0], extensions[1], "VK_KHR_get_surface_capabilities2", "VK_EXT_debug_utils", "VK_EXT_debug_report"};
     const char **ppEnabledExtensionNames = malloc((n_enabledExtensionCount) * sizeof(const char *));
     memcpy(ppEnabledExtensionNames, extensions_list, n_enabledExtensionCount * sizeof(const char*)); 
 
@@ -316,8 +325,11 @@ static void _vulakn_init()
     pfnVkDestroyDebugUtilsMessengerEXT = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(vkContext.instance, "vkDestroyDebugUtilsMessengerEXT");
     if(!pfnVkDestroyDebugUtilsMessengerEXT)printf("failed to retrive vkDestroyDebugUtilsMessengerEXT\n");
 
-    //pfnCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(vkContext.instance, "vkCreateDebugReportCallbackEXT");
-    //if(!pfnCreateDebugReportCallbackEXT)printf("failed to retrive vkCreateDebugReportCallbackEXT\n");
+    pfnCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(vkContext.instance, "vkCreateDebugReportCallbackEXT");
+    if(!pfnCreateDebugReportCallbackEXT)printf("failed to retrive vkCreateDebugReportCallbackEXT\n");
+
+    pfnDestroyDebugReportCallbackEXT = (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(vkContext.instance, "vkDestroyDebugReportCallbackEXT");
+    if(!pfnDestroyDebugReportCallbackEXT)printf("failed to retrive vkDestroyDebugReportCallbackEXT\n");
 
     VkDebugUtilsMessengerCreateInfoEXT debugutils_messenger_createinfo = {0};
     debugutils_messenger_createinfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
@@ -327,18 +339,18 @@ static void _vulakn_init()
     debugutils_messenger_createinfo.pfnUserCallback = &vulkanDebugCallback;
     debugutils_messenger_createinfo.pUserData = NULL;
 
-    /*
+    
     VkDebugReportCallbackCreateInfoEXT debugreport_callback_createinfo = {0};
     debugreport_callback_createinfo.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
     debugreport_callback_createinfo.flags = VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_ERROR_BIT_EXT |  VK_DEBUG_REPORT_DEBUG_BIT_EXT;
     debugreport_callback_createinfo.pfnCallback = &vulkanDebugReportCallback;
-    debugreport_callback_createinfo.pUserData = NULL;*/
+    debugreport_callback_createinfo.pUserData = NULL;
     
     VkResult createDebugUtilsResult = vkCreateDebugUtilsMessengerEXT(vkContext.instance, &debugutils_messenger_createinfo, NULL, &pmessage);
     _VkResultsCheck(createDebugUtilsResult, "vkCreateDebugUtilsMessenger");
 
-    //VkDebugReportCallbackEXT pCallback;
-    //VkResult createDebugReportCallbackResult = vkCreateDebugReportCallbackEXT(vkContext.instance, &debugreport_callback_createinfo, NULL, &pCallback);
+    VkResult createDebugReportCallbackResult = vkCreateDebugReportCallbackEXT(vkContext.instance, &debugreport_callback_createinfo, NULL, &pCallback);
+    _VkResultsCheck(createDebugReportCallbackResult, "vkCreateDebugReportCallbackEXT");
 
     VkResult CreateSurfaceResult = glfwCreateWindowSurface(vkContext.instance, window, NULL, &vkContext.surface);
     _VkResultsCheck(CreateSurfaceResult, "Create surface");
@@ -379,7 +391,6 @@ static void _vulkan_swapchain()
     VkResult GetswapChainImageResult = vkGetSwapchainImagesKHR(pDeviceHandel, pSwapchainHandel, &swapChainImageCount, pSwapchainImagesHandel);
     _VkResultsCheck(GetswapChainImageResult, "vkGetSwapchainImagesKHR");
 
-    //printf("%u\n",pSwapchainImagesHandel[0]);
     pViewHandel = malloc((swapChainImageCount+1)*sizeof(VkImageView));
     printf("%u\n",swapChainImageCount);
     
@@ -424,6 +435,7 @@ static void _vulkan_cleanup()
     vkDestroySurfaceKHR(vkContext.instance, vkContext.surface, NULL);
     vkDestroyDevice(pDeviceHandel, NULL);
     vkDestroyDebugUtilsMessengerEXT(vkContext.instance, pmessage, NULL);
+    vkDestroyDebugReportCallbackEXT(vkContext.instance, pCallback, NULL);
     vkDestroyInstance(vkContext.instance, NULL);
 }
 
