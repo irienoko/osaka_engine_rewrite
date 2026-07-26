@@ -10,15 +10,79 @@
 
 #define FRAME_OVERLAP 2
 
-static VKAPI_ATTR VkBool32 VKAPI_CALL vulkanDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT Severity, VkDebugUtilsMessageTypeFlagsEXT sType,
-                                                         const VkDebugUtilsMessengerCallbackDataEXT* CallbackData, void*UserData)
+
+//Internal vulakn  functions
+static void _vulakn_init();
+static void _vulkan_swapchain();
+static void _vulkan_initcommands();
+static void _vulkan_sync_structures();
+static void _vulkan_cleanup();
+static void _vulakn_draw();
+
+/*###############################################################################################################################*
+*---------------------------------------------------------Vulkan External--------------------------------------------------------*
+*################################################################################################################################*/
+
+GLFWwindow* window;
+void VKEngine_init()
+{
+    printf("size: %lu\n", sizeof(VkDevice));
+    if(!glfwInit())
+    {
+        printf("failed to initialise glfw :( quitting");
+    }
+
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    window = glfwCreateWindow(640, 480, "Window Title", NULL, NULL);
+    if(!window)printf("failed to create window \n");
+
+    _vulakn_init();
+    _vulkan_swapchain();
+    _vulkan_initcommands();
+    _vulkan_sync_structures();
+}
+
+void VkEngine_cleanup()
+{
+    if(glfwWindowShouldClose(window))
+    {
+        _vulkan_cleanup();
+        glfwDestroyWindow(window);
+        glfwTerminate();
+    }
+}
+
+void VKEngine_draw()
+{
+    _vulakn_draw();
+    while(!glfwWindowShouldClose(window))
+    {
+        glfwPollEvents();
+    }
+}
+
+void VkEngine_run()
+{
+
+}
+
+
+/*###############################################################################################################################*
+*---------------------------------------------------------Vulkan internal--------------------------------------------------------*
+*################################################################################################################################*/
+
+
+/*###############################################################################################################################*
+*---------------------------------------------------------Vulkan Debug-----------------------------------------------------------*
+*################################################################################################################################*/
+
+static VKAPI_ATTR VkBool32 VKAPI_CALL vulkanDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT Severity, VkDebugUtilsMessageTypeFlagsEXT sType, const VkDebugUtilsMessengerCallbackDataEXT* CallbackData, void*UserData)
 {
     printf("Validaiton layer: %s\n", CallbackData->pMessage);
     return VK_FALSE;
 }
 
-static VKAPI_ATTR VkBool32 VKAPI_CALL vulkanDebugReportCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objectType, uint64_t object,
-                                                                size_t location, int32_t messageCode, const char* pLayerPrefix, const char*pMessage, void *UserData)
+static VKAPI_ATTR VkBool32 VKAPI_CALL vulkanDebugReportCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT objectType, uint64_t object, size_t location, int32_t messageCode, const char* pLayerPrefix, const char*pMessage, void *UserData)
 {
     printf("Debug callback [%s]: %s\n", pLayerPrefix, pMessage);
     return VK_FALSE;
@@ -29,19 +93,12 @@ PFN_vkDestroyDebugUtilsMessengerEXT pfnVkDestroyDebugUtilsMessengerEXT;
 PFN_vkCreateDebugReportCallbackEXT  pfnCreateDebugReportCallbackEXT;
 PFN_vkDestroyDebugReportCallbackEXT pfnDestroyDebugReportCallbackEXT;
 
-VKAPI_ATTR VkResult VKAPI_CALL vkCreateDebugUtilsMessengerEXT( VkInstance                                 instance,
-                                                               const VkDebugUtilsMessengerCreateInfoEXT * pCreateInfo,
-                                                               const VkAllocationCallbacks *              pAllocator,
-                                                               VkDebugUtilsMessengerEXT *                 pMessenger )
+VKAPI_ATTR VkResult VKAPI_CALL vkCreateDebugUtilsMessengerEXT( VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT * pCreateInfo, const VkAllocationCallbacks *pAllocator, VkDebugUtilsMessengerEXT *pMessenger )
 {
   return pfnVkCreateDebugUtilsMessengerEXT( instance, pCreateInfo, pAllocator, pMessenger );
 }
 
-VKAPI_ATTR VkResult VKAPI_CALL vkCreateDebugReportCallbackEXT(
-	VkInstance instance,
-	const VkDebugReportCallbackCreateInfoEXT* pCreateInfo,
-	const VkAllocationCallbacks* pAllocator,
-	VkDebugReportCallbackEXT* pCallback
+VKAPI_ATTR VkResult VKAPI_CALL vkCreateDebugReportCallbackEXT( VkInstance instance, const VkDebugReportCallbackCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugReportCallbackEXT* pCallback
 ){
 	return pfnCreateDebugReportCallbackEXT( instance, pCreateInfo, pAllocator, pCallback );
 }
@@ -56,13 +113,9 @@ VKAPI_ATTR void VKAPI_CALL vkDestroyDebugReportCallbackEXT( VkInstance instance,
   return pfnDestroyDebugReportCallbackEXT( instance, messenger, pAllocator );
 }
 
-static void _vulakn_init();
-static void _vulkan_swapchain();
-static void _vulkan_initcommands();
-static void _vulkan_sync_structures();
-static void _vulkan_cleanup();
-
-static void _VkResultsCheck(VkResult result, const char *from);
+/*###################################################################################################################################*
+*---------------------------------------------------------Vulkan Debug end-----------------------------------------------------------*
+*####################################################################################################################################*/
 
 struct _vulkan_instance
 {
@@ -84,37 +137,47 @@ struct _vulakn_framedata
 static struct _vulakn_framedata frame_data[FRAME_OVERLAP] = {0};
 static int _framenumber = 0;
 
-
-VkDevice pDeviceHandel;
-VkSwapchainKHR pSwapchainHandel;
-VkImage *pSwapchainImagesHandel = {0};
-GLFWwindow* window;
-void VKEngine_init()
+VkQueue _graphicsQueue;
+static void _vulakn_checkresult(VkResult result, const char *from)
 {
-    printf("size: %lu\n", sizeof(VkDevice));
-    if(!glfwInit())
+    switch(result)
     {
-        printf("failed to initialise glfw :( quitting");
-    }
+        case(VK_SUCCESS):
+            printf("VK_SUCCESS From: [%s] \n", from);
+        break;
 
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    window = glfwCreateWindow(640, 480, "Window Title", NULL, NULL);
-    if(!window)printf("failed to create window \n");
-
-    _vulakn_init();
-    _vulkan_swapchain();
-    _vulkan_initcommands();
-    _vulkan_sync_structures();
-
-}
-
-void VkEngine_cleanup()
-{
-    if(glfwWindowShouldClose(window))
-    {
-        _vulkan_cleanup();
-        glfwDestroyWindow(window);
-        glfwTerminate();
+        case(VK_ERROR_EXTENSION_NOT_PRESENT):
+            printf("VK_ERROR_EXTENSION_NOT_PRESENT, From: [%s] \n", from);
+            exit(1);
+        break;
+        case(VK_ERROR_INCOMPATIBLE_DRIVER):
+            printf("VK_ERROR_EXTENSION_NOT_PRESENT, From: [%s] \n", from);
+            exit(1);
+        break;
+        case(VK_ERROR_INITIALIZATION_FAILED):
+            printf("VK_ERROR_INITIALIZATION_FAILED, From: [%s] \n", from);
+            exit(1);
+        break;
+        case(VK_ERROR_LAYER_NOT_PRESENT):
+            printf("VK_ERROR_LAYER_NOT_PRESENT, From: [%s] \n", from);
+            exit(1);
+        break;
+        case(VK_ERROR_OUT_OF_DEVICE_MEMORY):
+            printf("VK_ERROR_OUT_OF_DEVICE_MEMORY, From: [%s] \n", from);
+            exit(1);
+        break;
+        case(VK_ERROR_UNKNOWN):
+            printf("VK_ERROR_UNKNOWN: de fuck did u do, From: [%s] \n", from);
+            exit(1);
+        break;
+        case(VK_ERROR_VALIDATION_FAILED):
+            printf("VK_ERROR_VALIDATION_FAILED, From: [%s] \n", from);
+            exit(1);
+        break;
+        default:
+            printf("something else, From: [%s] \n", from);
+            exit(1);
+        break;
     }
 }
 
@@ -151,17 +214,327 @@ static void transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout c
     vkCmdPipelineBarrier2(cmd, &dependency_info);
 }
 
-VkQueue _graphicsQueue;
-void VKEngine_draw()
+
+uint32_t queueFamilyIndex = 0;
+VkDevice _device;
+VkSwapchainKHR _swapchain;
+VkImage *_swapchain_image = {0};
+static void _vulakn_choosedevice()
 {
-    VkResult waitForFenceResult = vkWaitForFences(pDeviceHandel, 1, &frame_data[_framenumber % FRAME_OVERLAP]._renderFence, VK_TRUE, 1000000000);
-    _VkResultsCheck(waitForFenceResult, "vkWaitForFences");
-    VkResult resetFencesResult = vkResetFences(pDeviceHandel, 1, &frame_data[_framenumber % FRAME_OVERLAP]._renderFence);
-    _VkResultsCheck(resetFencesResult, "vkResetFences");
+    uint32_t pPhysicalDeviceCount = 0;
+    VkResult GetPhysicalDevices_Count = vkEnumeratePhysicalDevices(vkContext.instance, &pPhysicalDeviceCount, NULL);
+    _vulakn_checkresult(GetPhysicalDevices_Count, "GetPhysicalDevices_Count");
+    
+    
+    VkPhysicalDevice *pPhysicalDevices = malloc((pPhysicalDeviceCount+1) * sizeof(VkPhysicalDevice));
+    VkResult EnumeratePhysicalDevices = vkEnumeratePhysicalDevices(vkContext.instance, &pPhysicalDeviceCount, pPhysicalDevices);
+    _vulakn_checkresult(EnumeratePhysicalDevices, "PhysicalDevices");
+
+
+    //https://docs.vulkan.org/spec/latest/chapters/devsandqueues.html#VkPhysicalDeviceProperties2
+    VkPhysicalDeviceProperties2 pProperties = {0};
+    pProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    pProperties.pNext = NULL;
+
+    //https://docs.vulkan.org/spec/latest/chapters/features.html#vkGetPhysicalDeviceFeatures2
+    VkPhysicalDeviceFeatures2 pFeatures = {0};
+    pFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    pFeatures.pNext = NULL;
+
+    //https://docs.vulkan.org/spec/latest/chapters/devsandqueues.html#vkGetPhysicalDeviceQueueFamilyProperties2
+
+    uint32_t pQueueFamilyPropertyCount = 0;
+    uint32_t SELECTED_GPU_INDEX = 0;
+
+    VkQueueFamilyProperties2 *pQueueFamilyProperties;
+
+    for(uint32_t i =0; i < pPhysicalDeviceCount; i++)
+    {
+    
+
+        vkGetPhysicalDeviceProperties2(pPhysicalDevices[i], &pProperties);
+        vkGetPhysicalDeviceFeatures2(pPhysicalDevices[i], &pFeatures);
+
+        vkGetPhysicalDeviceQueueFamilyProperties2(pPhysicalDevices[i], &pQueueFamilyPropertyCount, NULL);
+        pQueueFamilyProperties = malloc((pQueueFamilyPropertyCount) * sizeof(VkQueueFamilyProperties2));
+
+        for(uint32_t pQ = 0; pQ < pQueueFamilyPropertyCount; pQ++)
+        {
+            pQueueFamilyProperties[pQ].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2;
+            pQueueFamilyProperties[pQ].pNext = NULL;
+        }
+        vkGetPhysicalDeviceQueueFamilyProperties2(pPhysicalDevices[i], &pQueueFamilyPropertyCount, pQueueFamilyProperties);
+        
+
+        for(uint32_t Q = 0; Q < pQueueFamilyPropertyCount; Q++)
+        {
+            if(glfwGetPhysicalDevicePresentationSupport(vkContext.instance, pPhysicalDevices[i],Q))
+            {
+                if(pProperties.properties.deviceType & VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+                {
+                    //printf("use device: %s by default\n", pProperties.properties.deviceName);
+                    printf("VK_QUEUE_GRAPHICS_BIT, QUEUECOUNT: %u INDEX: %u DEVICE NAME: %s\n", pQueueFamilyProperties[Q].queueFamilyProperties.queueCount, Q, pProperties.properties.deviceName);
+                    queueFamilyIndex = Q;
+                    SELECTED_GPU_INDEX = i;
+                }else
+                {
+
+                    printf("CPU: %s should add ablitity to choose but thats for later \n", pProperties.properties.deviceName);
+                }
+            }
+        }
+        free(pQueueFamilyProperties);
+        //think about adding the ablity to choose what device to use. later
+    }
+
+    VkPhysicalDeviceVulkan13Features vulkan_13_features  ={0};
+    vulkan_13_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+    vulkan_13_features.synchronization2 = VK_TRUE;
+
+    float queuePriority = 1.0f;
+    VkDeviceQueueCreateInfo queue_create_info = {0};
+    queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queue_create_info.queueFamilyIndex = queueFamilyIndex;
+    queue_create_info.queueCount = 1;
+    queue_create_info.pQueuePriorities = &queuePriority;
+    
+
+
+    const char* enabled_extensions[2] = {"VK_KHR_swapchain", "VK_KHR_synchronization2"};
+    VkDeviceCreateInfo create_info = {0};
+    create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    create_info.pNext = &vulkan_13_features;
+    create_info.queueCreateInfoCount = 1;
+    create_info.pQueueCreateInfos = &queue_create_info;
+    create_info.enabledExtensionCount = 2;
+    create_info.ppEnabledExtensionNames = enabled_extensions;
+
+
+    printf("selected gpu index %u\n",SELECTED_GPU_INDEX);
+    VkResult CreateDeviceResult = vkCreateDevice(pPhysicalDevices[SELECTED_GPU_INDEX], &create_info, NULL, &_device);
+    _vulakn_checkresult(CreateDeviceResult, "Create Device");
+
+    
+    uint32_t pSurfaceFormatCount = 0;
+    VkPhysicalDeviceSurfaceInfo2KHR physical_device_surface_info = {0};
+    physical_device_surface_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR;
+    physical_device_surface_info.surface = vkContext.surface;
+
+    vkGetDeviceQueue(_device, queueFamilyIndex, 0, &_graphicsQueue);
+    /*
+    VkResult PhysicalDeviceSurfaceFormatCountResult = vkGetPhysicalDeviceSurfaceFormats2KHR(pPhysicalDevices[SELECTED_GPU_INDEX], &physical_device_surface_info, &pSurfaceFormatCount, NULL);
+    _VkResultsCheck(PhysicalDeviceSurfaceFormatCountResult, "Physical Device Surface Format count");
+
+    pSurfaceFormats = malloc((pSurfaceFormatCount+1) * sizeof(VkSurfaceFormat2KHR));
+    for(uint32_t i = 0; i <= pSurfaceFormatCount; i++)
+    {
+        pSurfaceFormats[i].sType =VK_STRUCTURE_TYPE_SURFACE_FORMAT_2_KHR;
+        pSurfaceFormats[i].pNext = NULL;
+    }
+
+    VkResult PhysicalDeviceSurfaceFormatResult = vkGetPhysicalDeviceSurfaceFormats2KHR(pPhysicalDevices[SELECTED_GPU_INDEX], &physical_device_surface_info, &pSurfaceFormatCount, pSurfaceFormats);
+    _VkResultsCheck(PhysicalDeviceSurfaceFormatResult, "Physical Device Surface Format");*/
+}
+
+static void _vulakn_init()
+{
+    uint32_t Vulakn_apiVersion = VK_API_VERSION_1_1;
+    VkApplicationInfo application_info = {0};
+    application_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO ;
+    application_info.apiVersion = VK_API_VERSION_1_3;
+
+    PFN_vkVoidFunction EnumerateInstanceVersion = vkGetInstanceProcAddr(vkContext.instance, "vkEnumerateInstanceVersion");
+    if(!EnumerateInstanceVersion)
+    {
+        printf("VK_API_VERSION_1_0");
+    }else
+    {
+        VkResult InstanceVersion = vkEnumerateInstanceVersion(&Vulakn_apiVersion);
+        _vulakn_checkresult(InstanceVersion, "vkEnumerateInstanceVersion");
+    }
+
+    uint32_t enabledExtensionCount = 0;
+    const char * const *extensions = glfwGetRequiredInstanceExtensions(&enabledExtensionCount);
+    uint32_t n_enabledExtensionCount = enabledExtensionCount +3;
+
+    const char *extensions_list[5] = {extensions[0], extensions[1], "VK_KHR_get_surface_capabilities2", "VK_EXT_debug_utils", "VK_EXT_debug_report"};
+    const char **ppEnabledExtensionNames = malloc((n_enabledExtensionCount) * sizeof(const char *));
+    memcpy(ppEnabledExtensionNames, extensions_list, n_enabledExtensionCount * sizeof(const char*)); 
+
+    uint32_t enabledLayerCount = 0;
+    #ifdef VGRAPHICS_VERBOSE
+        enabledLayerCount++;
+    #endif
+    
+    const char** ppEnabledLayerNames = NULL;
+    if(enabledLayerCount > 0) ppEnabledLayerNames = malloc(enabledLayerCount * sizeof(const char*));
+
+    VkInstanceCreateInfo instance_createinfo = {0};
+    instance_createinfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    instance_createinfo.pNext = NULL;
+    instance_createinfo.pApplicationInfo = &application_info;
+    instance_createinfo.enabledExtensionCount = n_enabledExtensionCount;
+    instance_createinfo.ppEnabledExtensionNames = ppEnabledExtensionNames;
+    instance_createinfo.enabledLayerCount = enabledLayerCount;
+    instance_createinfo.ppEnabledLayerNames = ppEnabledLayerNames;
+
+
+    VkResult instanceResult = vkCreateInstance(&instance_createinfo, NULL, &vkContext.instance);
+    _vulakn_checkresult(instanceResult, "INSTANCE_CREATE");
+
+    
+    pfnVkCreateDebugUtilsMessengerEXT = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(vkContext.instance, "vkCreateDebugUtilsMessengerEXT");
+    if(!pfnVkCreateDebugUtilsMessengerEXT)printf("failed to retrive vkCreateDebugUtilsMessengerEXT\n");
+
+    pfnVkDestroyDebugUtilsMessengerEXT = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(vkContext.instance, "vkDestroyDebugUtilsMessengerEXT");
+    if(!pfnVkDestroyDebugUtilsMessengerEXT)printf("failed to retrive vkDestroyDebugUtilsMessengerEXT\n");
+
+    pfnCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(vkContext.instance, "vkCreateDebugReportCallbackEXT");
+    if(!pfnCreateDebugReportCallbackEXT)printf("failed to retrive vkCreateDebugReportCallbackEXT\n");
+
+    pfnDestroyDebugReportCallbackEXT = (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(vkContext.instance, "vkDestroyDebugReportCallbackEXT");
+    if(!pfnDestroyDebugReportCallbackEXT)printf("failed to retrive vkDestroyDebugReportCallbackEXT\n");
+
+    VkDebugUtilsMessengerCreateInfoEXT debugutils_messenger_createinfo = {0};
+    debugutils_messenger_createinfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+    debugutils_messenger_createinfo.flags = 0;
+    debugutils_messenger_createinfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    debugutils_messenger_createinfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    debugutils_messenger_createinfo.pfnUserCallback = &vulkanDebugCallback;
+    debugutils_messenger_createinfo.pUserData = NULL;
+
+    
+    VkDebugReportCallbackCreateInfoEXT debugreport_callback_createinfo = {0};
+    debugreport_callback_createinfo.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
+    debugreport_callback_createinfo.flags = VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_ERROR_BIT_EXT |  VK_DEBUG_REPORT_DEBUG_BIT_EXT;
+    debugreport_callback_createinfo.pfnCallback = &vulkanDebugReportCallback;
+    debugreport_callback_createinfo.pUserData = NULL;
+    
+    VkResult createDebugUtilsResult = vkCreateDebugUtilsMessengerEXT(vkContext.instance, &debugutils_messenger_createinfo, NULL, &vkContext.pmessage);
+    _vulakn_checkresult(createDebugUtilsResult, "vkCreateDebugUtilsMessenger");
+
+    VkResult createDebugReportCallbackResult = vkCreateDebugReportCallbackEXT(vkContext.instance, &debugreport_callback_createinfo, NULL, &vkContext.pCallback);
+    _vulakn_checkresult(createDebugReportCallbackResult, "vkCreateDebugReportCallbackEXT");
+
+    VkResult CreateSurfaceResult = glfwCreateWindowSurface(vkContext.instance, window, NULL, &vkContext.surface);
+    _vulakn_checkresult(CreateSurfaceResult, "Create surface");
+    
+    _vulakn_choosedevice();
+
+    free(ppEnabledExtensionNames);
+    free(ppEnabledLayerNames);
+}
+
+VkImageView *_imageview = {0};
+uint32_t swapChainImageCount = 0;
+static void _vulkan_swapchain()
+{
+    VkExtent2D vksurface_dimension = {640, 480};
+    VkSwapchainCreateInfoKHR swapchain_createInfo = {0};
+    swapchain_createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    swapchain_createInfo.surface = vkContext.surface;
+    swapchain_createInfo.minImageCount = 3;
+    swapchain_createInfo.imageFormat = VK_FORMAT_B8G8R8A8_UNORM;
+    swapchain_createInfo.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+    swapchain_createInfo.imageExtent = vksurface_dimension; //look at vkGetPhysicalDeviceSurfaceCapabilitiesKHR later
+    swapchain_createInfo.imageArrayLayers = 1;
+    swapchain_createInfo.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    swapchain_createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    swapchain_createInfo.compositeAlpha = 0x00000001; //VkCompositeAlphaFlagBitsKHR.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
+    swapchain_createInfo.preTransform = 0x00000001; //VkSurfaceTransformFlagBitsKHR.VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
+    swapchain_createInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    swapchain_createInfo.oldSwapchain = VK_NULL_HANDLE;
+
+    VkResult createSwapResult = vkCreateSwapchainKHR(_device, &swapchain_createInfo, NULL, &_swapchain);
+    _vulakn_checkresult(createSwapResult, "Create Swap chain");
+
+    VkResult swapChainImageResult = vkGetSwapchainImagesKHR(_device, _swapchain, &swapChainImageCount, NULL);
+    _vulakn_checkresult(swapChainImageResult, "vkGetSwapchainImagesKHR count");
+
+    _swapchain_image = malloc((swapChainImageCount+1) * sizeof(VkImage));
+    VkResult GetswapChainImageResult = vkGetSwapchainImagesKHR(_device, _swapchain, &swapChainImageCount, _swapchain_image);
+    _vulakn_checkresult(GetswapChainImageResult, "vkGetSwapchainImagesKHR");
+
+    _imageview = malloc((swapChainImageCount+1)*sizeof(VkImageView));
+    printf("%u\n",swapChainImageCount);
+    
+    for(uint32_t i = 0; i < swapChainImageCount; i++)
+    {
+        VkImageViewCreateInfo image_view_createinfo = {0};
+        image_view_createinfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        image_view_createinfo.image = _swapchain_image[i];
+        image_view_createinfo.viewType = 1;
+        image_view_createinfo.format = VK_FORMAT_B8G8R8A8_UNORM;
+
+        image_view_createinfo.components.r = 3;
+        image_view_createinfo.components.g = 4;
+        image_view_createinfo.components.b = 5;
+        image_view_createinfo.components.a = 6;
+
+        image_view_createinfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        image_view_createinfo.subresourceRange.baseMipLevel = 0;
+        image_view_createinfo.subresourceRange.levelCount = 1;
+        image_view_createinfo.subresourceRange.baseArrayLayer = 0;
+        image_view_createinfo.subresourceRange.layerCount = 1;
+
+        VkResult CreateImageViewResult = vkCreateImageView(_device, &image_view_createinfo, NULL, &_imageview[i]);
+    }
+}
+
+static void _vulkan_initcommands()
+{
+    VkCommandPoolCreateInfo command_pool_createinfo = {0};
+    command_pool_createinfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    command_pool_createinfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    command_pool_createinfo.queueFamilyIndex = queueFamilyIndex;
+
+    for(uint32_t i = 0; i < FRAME_OVERLAP; i++)
+    {
+        VkResult createCommandPoolResult = vkCreateCommandPool(_device, &command_pool_createinfo, NULL, &frame_data[i]._commandPool);
+        _vulakn_checkresult(createCommandPoolResult, "vkCreateCommandPool");
+
+        VkCommandBufferAllocateInfo command_bufferallo_createinfo = {0};
+        command_bufferallo_createinfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        command_bufferallo_createinfo.commandPool = frame_data[i]._commandPool;
+        command_bufferallo_createinfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        command_bufferallo_createinfo.commandBufferCount = 1;
+
+        VkResult allocateCommandBufferResult = vkAllocateCommandBuffers(_device, &command_bufferallo_createinfo, &frame_data[i]._mainCommandBuffer);
+    }
+}
+
+static void _vulkan_sync_structures()
+{
+    VkFenceCreateInfo fence_createinfo = {0};
+    fence_createinfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_createinfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    VkSemaphoreCreateInfo semaphore_createinfo = {0};
+    semaphore_createinfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    for(uint32_t i = 0; i < FRAME_OVERLAP; i++)
+    {
+        VkResult createFenceResult = vkCreateFence(_device, &fence_createinfo, NULL, &frame_data[i]._renderFence);
+        _vulakn_checkresult(createFenceResult, "vkCreateFence");
+
+        VkResult createSwapchainSemaphoreResult = vkCreateSemaphore(_device, &semaphore_createinfo, NULL, &frame_data[i]._swapchainSemaphore);
+        _vulakn_checkresult(createSwapchainSemaphoreResult, "createSwapchainSemaphore");
+
+        VkResult createRenderSemaphoreResult = vkCreateSemaphore(_device, &semaphore_createinfo, NULL, &frame_data[i]._renderSemaphore);
+        _vulakn_checkresult(createRenderSemaphoreResult, "createRenderSemaphore");
+    }
+}
+
+static void _vulakn_draw()
+{
+    VkResult waitForFenceResult = vkWaitForFences(_device, 1, &frame_data[_framenumber % FRAME_OVERLAP]._renderFence, VK_TRUE, 1000000000);
+    _vulakn_checkresult(waitForFenceResult, "vkWaitForFences");
+    VkResult resetFencesResult = vkResetFences(_device, 1, &frame_data[_framenumber % FRAME_OVERLAP]._renderFence);
+    _vulakn_checkresult(resetFencesResult, "vkResetFences");
 
     uint32_t swapchainImageIndex = 0;
-    VkResult acquireNextImageResult = vkAcquireNextImageKHR(pDeviceHandel, pSwapchainHandel, 1000000000, frame_data[_framenumber % FRAME_OVERLAP]._swapchainSemaphore, NULL, &swapchainImageIndex);
-    _VkResultsCheck(resetFencesResult, "vkResetFences");
+    VkResult acquireNextImageResult = vkAcquireNextImageKHR(_device, _swapchain, 1000000000, frame_data[_framenumber % FRAME_OVERLAP]._swapchainSemaphore, NULL, &swapchainImageIndex);
+    _vulakn_checkresult(resetFencesResult, "vkResetFences");
 
     VkCommandBufferBeginInfo command_bufferbegin_createinfo = {0};
     command_bufferbegin_createinfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -171,10 +544,10 @@ void VKEngine_draw()
     VkResult resetCommandBufferResult = vkResetCommandBuffer(cmd, 0);
     VkResult beginCommandBufferResult = vkBeginCommandBuffer(cmd, &command_bufferbegin_createinfo);
 
-    transition_image(cmd, pSwapchainImagesHandel[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    transition_image(cmd, _swapchain_image[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
     VkClearColorValue clearValue = {0};
     clearValue.float32[1] = 0.0f;
-    clearValue.float32[2] = 0.0f;
+    clearValue.float32[2] = 1.0f;
     clearValue.float32[3] = 1.0f;
     clearValue.float32[4] = 1.0f;
 
@@ -185,11 +558,11 @@ void VKEngine_draw()
     clear_range.baseArrayLayer = 0;
     clear_range.layerCount = VK_REMAINING_ARRAY_LAYERS;
 
-    vkCmdClearColorImage(cmd, pSwapchainImagesHandel[swapchainImageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clear_range);
-    transition_image(cmd, pSwapchainImagesHandel[swapchainImageIndex], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    vkCmdClearColorImage(cmd, _swapchain_image[swapchainImageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clear_range);
+    transition_image(cmd, _swapchain_image[swapchainImageIndex], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
     VkResult endCommandBuffer = vkEndCommandBuffer(cmd);
-    _VkResultsCheck(endCommandBuffer, "vkEndCommandBuffer");
+    _vulakn_checkresult(endCommandBuffer, "vkEndCommandBuffer");
 
     VkSemaphoreSubmitInfo waitsemaphore_submit_info = {0};
     waitsemaphore_submit_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
@@ -223,11 +596,11 @@ void VKEngine_draw()
     submit_info.pCommandBufferInfos = &command_submit_info;
 
     VkResult queue_submit = vkQueueSubmit2(_graphicsQueue, 1, &submit_info, frame_data[_framenumber % FRAME_OVERLAP]._renderFence);
-    _VkResultsCheck(queue_submit, "vkQueueSubmit2");
+    _vulakn_checkresult(queue_submit, "vkQueueSubmit2");
 
     VkPresentInfoKHR present_info = {0};
     present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    present_info.pSwapchains = &pSwapchainHandel;
+    present_info.pSwapchains = &_swapchain;
     present_info.swapchainCount = 1;
 
     present_info.pWaitSemaphores = &frame_data[_framenumber % FRAME_OVERLAP]._renderSemaphore;
@@ -239,387 +612,31 @@ void VKEngine_draw()
     _framenumber ++;
 }
 
-void VkEngine_run()
+
+static void _vulakn_destory_swapchain()
 {
-    while(!glfwWindowShouldClose(window))
-    {
-        glfwPollEvents();
-    }
-}
-
-
-/*###############################################################################################################################*
-*---------------------------------------------------------Vulkan internal--------------------------------------------------------*
-*################################################################################################################################*/
-static void _VkResultsCheck(VkResult result, const char *from)
-{
-    switch(result)
-    {
-        case(VK_SUCCESS):
-            printf("VK_SUCCESS From: [%s] \n", from);
-        break;
-
-        case(VK_ERROR_EXTENSION_NOT_PRESENT):
-            printf("VK_ERROR_EXTENSION_NOT_PRESENT, From: [%s] \n", from);
-        break;
-        case(VK_ERROR_INCOMPATIBLE_DRIVER):
-            printf("VK_ERROR_EXTENSION_NOT_PRESENT, From: [%s] \n", from);
-        break;
-        case(VK_ERROR_INITIALIZATION_FAILED):
-            printf("VK_ERROR_INITIALIZATION_FAILED, From: [%s] \n", from);
-        break;
-        case(VK_ERROR_LAYER_NOT_PRESENT):
-            printf("VK_ERROR_LAYER_NOT_PRESENT, From: [%s] \n", from);
-        break;
-        case(VK_ERROR_OUT_OF_DEVICE_MEMORY):
-            printf("VK_ERROR_OUT_OF_DEVICE_MEMORY, From: [%s] \n", from);
-        break;
-        case(VK_ERROR_UNKNOWN):
-            printf("VK_ERROR_UNKNOWN: de fuck did u do, From: [%s] \n", from);
-        break;
-        case(VK_ERROR_VALIDATION_FAILED):
-            printf("VK_ERROR_VALIDATION_FAILED, From: [%s] \n", from);
-        break;
-        default:
-            printf("something else, From: [%s] \n", from);
-        break;
-    }
-}
-
-
-//VkSurfaceFormat2KHR *pSurfaceFormats = {0};
-uint32_t queueFamilyIndex  = 0;
-/*Device and Queues*/
-static void _vulakn_PhysicalDevices()
-{
-    /*Get number of physical devices*/
-    uint32_t pPhysicalDeviceCount = 0;
-    VkResult GetPhysicalDevices_Count = vkEnumeratePhysicalDevices(vkContext.instance, &pPhysicalDeviceCount, NULL);
-    _VkResultsCheck(GetPhysicalDevices_Count, "GetPhysicalDevices_Count");
-    
-    /*get physical device handel*/
-    VkPhysicalDevice *pPhysicalDevices = malloc((pPhysicalDeviceCount+1) * sizeof(VkPhysicalDevice));
-    VkResult EnumeratePhysicalDevices = vkEnumeratePhysicalDevices(vkContext.instance, &pPhysicalDeviceCount, pPhysicalDevices);
-    _VkResultsCheck(EnumeratePhysicalDevices, "PhysicalDevices");
-
-
-    //https://docs.vulkan.org/spec/latest/chapters/devsandqueues.html#VkPhysicalDeviceProperties2
-    VkPhysicalDeviceProperties2 pProperties = {0};
-    pProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-    pProperties.pNext = NULL;
-
-    //https://docs.vulkan.org/spec/latest/chapters/features.html#vkGetPhysicalDeviceFeatures2
-    VkPhysicalDeviceFeatures2 pFeatures = {0};
-    pFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    pFeatures.pNext = NULL;
-
-    //https://docs.vulkan.org/spec/latest/chapters/devsandqueues.html#vkGetPhysicalDeviceQueueFamilyProperties2
-
-    uint32_t pQueueFamilyPropertyCount = 0;
-    uint32_t SELECTED_GPU_INDEX = 0;
-
-    VkQueueFamilyProperties2 *pQueueFamilyProperties;
-    /* check graphics card compatibality*/
-    for(uint32_t i =0; i < pPhysicalDeviceCount; i++)
-    {
-    
-
-        vkGetPhysicalDeviceProperties2(pPhysicalDevices[i], &pProperties);
-        vkGetPhysicalDeviceFeatures2(pPhysicalDevices[i], &pFeatures);
-
-        vkGetPhysicalDeviceQueueFamilyProperties2(pPhysicalDevices[i], &pQueueFamilyPropertyCount, NULL);
-        pQueueFamilyProperties = malloc((pQueueFamilyPropertyCount) * sizeof(VkQueueFamilyProperties2));
-
-        for(uint32_t pQ = 0; pQ < pQueueFamilyPropertyCount; pQ++)
-        {
-            pQueueFamilyProperties[pQ].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2;
-            pQueueFamilyProperties[pQ].pNext = NULL;
-        }
-        vkGetPhysicalDeviceQueueFamilyProperties2(pPhysicalDevices[i], &pQueueFamilyPropertyCount, pQueueFamilyProperties);
-        
-
-        for(uint32_t Q = 0; Q < pQueueFamilyPropertyCount; Q++)
-        {
-            if(glfwGetPhysicalDevicePresentationSupport(vkContext.instance, pPhysicalDevices[i],Q))
-            {
-                if(pProperties.properties.deviceType & VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-                {
-                    printf("use device: %s by default\n", pProperties.properties.deviceName);
-                    printf("VK_QUEUE_GRAPHICS_BIT, QUEUECOUNT: %u INDEX: %u DEVICE NAME: %s\n", pQueueFamilyProperties[Q].queueFamilyProperties.queueCount, Q, pProperties.properties.deviceName);
-                    queueFamilyIndex = Q;
-                    SELECTED_GPU_INDEX = i;
-                }else
-                {
-
-                    printf("CPU: %s should add ablitity to choose but thats for later \n", pProperties.properties.deviceName);
-                }
-            }
-        }
-        free(pQueueFamilyProperties);
-        //think about adding the ablity to choose what device to use. later
-    }
-
-    VkPhysicalDeviceVulkan13Features vulkan_13_features  ={0};
-    vulkan_13_features.synchronization2 = VK_TRUE;
-
-    float queuePriority = 1.0f;
-    VkDeviceQueueCreateInfo queue_create_info = {0};
-    queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queue_create_info.queueFamilyIndex = queueFamilyIndex;
-    queue_create_info.queueCount = 1;
-    queue_create_info.pQueuePriorities = &queuePriority;
-    
-
-
-    const char* enabled_extensions[2] = {"VK_KHR_swapchain", "VK_KHR_synchronization2"};
-    VkDeviceCreateInfo create_info = {0};
-    create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    create_info.pNext = &vulkan_13_features;
-    create_info.queueCreateInfoCount = 1;
-    create_info.pQueueCreateInfos = &queue_create_info;
-    create_info.enabledExtensionCount = 2;
-    create_info.ppEnabledExtensionNames = enabled_extensions;
-
-
-    printf("selected gpu index %u\n",SELECTED_GPU_INDEX);
-    VkResult CreateDeviceResult = vkCreateDevice(pPhysicalDevices[SELECTED_GPU_INDEX], &create_info, NULL, &pDeviceHandel);
-    _VkResultsCheck(CreateDeviceResult, "Create Device");
-
-    
-    uint32_t pSurfaceFormatCount = 0;
-    VkPhysicalDeviceSurfaceInfo2KHR physical_device_surface_info = {0};
-    physical_device_surface_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR;
-    physical_device_surface_info.surface = vkContext.surface;
-
-    /*
-    VkResult PhysicalDeviceSurfaceFormatCountResult = vkGetPhysicalDeviceSurfaceFormats2KHR(pPhysicalDevices[SELECTED_GPU_INDEX], &physical_device_surface_info, &pSurfaceFormatCount, NULL);
-    _VkResultsCheck(PhysicalDeviceSurfaceFormatCountResult, "Physical Device Surface Format count");
-
-    pSurfaceFormats = malloc((pSurfaceFormatCount+1) * sizeof(VkSurfaceFormat2KHR));
-    for(uint32_t i = 0; i <= pSurfaceFormatCount; i++)
-    {
-        pSurfaceFormats[i].sType =VK_STRUCTURE_TYPE_SURFACE_FORMAT_2_KHR;
-        pSurfaceFormats[i].pNext = NULL;
-    }
-
-    VkResult PhysicalDeviceSurfaceFormatResult = vkGetPhysicalDeviceSurfaceFormats2KHR(pPhysicalDevices[SELECTED_GPU_INDEX], &physical_device_surface_info, &pSurfaceFormatCount, pSurfaceFormats);
-    _VkResultsCheck(PhysicalDeviceSurfaceFormatResult, "Physical Device Surface Format");*/
-}
-
-static void _vulakn_init()
-{
-    uint32_t Vulakn_apiVersion = VK_API_VERSION_1_1;
-    VkApplicationInfo application_info = {0};
-    application_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO ;
-    application_info.apiVersion = VK_API_VERSION_1_3;
-
-    PFN_vkVoidFunction EnumerateInstanceVersion = vkGetInstanceProcAddr(vkContext.instance, "vkEnumerateInstanceVersion");
-    if(!EnumerateInstanceVersion)
-    {
-        printf("VK_API_VERSION_1_0");
-    }else
-    {
-        VkResult InstanceVersion = vkEnumerateInstanceVersion(&Vulakn_apiVersion);
-        _VkResultsCheck(InstanceVersion, "vkEnumerateInstanceVersion");
-    }
-
-    uint32_t enabledExtensionCount = 0;
-    const char * const *extensions = glfwGetRequiredInstanceExtensions(&enabledExtensionCount);
-    uint32_t n_enabledExtensionCount = enabledExtensionCount +3;
-
-    const char *extensions_list[5] = {extensions[0], extensions[1], "VK_KHR_get_surface_capabilities2", "VK_EXT_debug_utils", "VK_EXT_debug_report"};
-    const char **ppEnabledExtensionNames = malloc((n_enabledExtensionCount) * sizeof(const char *));
-    memcpy(ppEnabledExtensionNames, extensions_list, n_enabledExtensionCount * sizeof(const char*)); 
-
-    uint32_t enabledLayerCount = 0;
-    #ifdef VGRAPHICS_VERBOSE
-        enabledLayerCount++;
-    #endif
-    
-    const char** ppEnabledLayerNames = NULL;
-    if(enabledLayerCount > 0) ppEnabledLayerNames = malloc(enabledLayerCount * sizeof(const char*));
-
-    VkInstanceCreateInfo instance_createinfo = {0};
-    instance_createinfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    instance_createinfo.pNext = NULL;
-    instance_createinfo.pApplicationInfo = &application_info;
-    instance_createinfo.enabledExtensionCount = n_enabledExtensionCount;
-    instance_createinfo.ppEnabledExtensionNames = ppEnabledExtensionNames;
-    instance_createinfo.enabledLayerCount = enabledLayerCount;
-    instance_createinfo.ppEnabledLayerNames = ppEnabledLayerNames;
-
-
-    VkResult instanceResult = vkCreateInstance(&instance_createinfo, NULL, &vkContext.instance);
-    _VkResultsCheck(instanceResult, "INSTANCE_CREATE");
-
-    
-    pfnVkCreateDebugUtilsMessengerEXT = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(vkContext.instance, "vkCreateDebugUtilsMessengerEXT");
-    if(!pfnVkCreateDebugUtilsMessengerEXT)printf("failed to retrive vkCreateDebugUtilsMessengerEXT\n");
-
-    pfnVkDestroyDebugUtilsMessengerEXT = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(vkContext.instance, "vkDestroyDebugUtilsMessengerEXT");
-    if(!pfnVkDestroyDebugUtilsMessengerEXT)printf("failed to retrive vkDestroyDebugUtilsMessengerEXT\n");
-
-    pfnCreateDebugReportCallbackEXT = (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(vkContext.instance, "vkCreateDebugReportCallbackEXT");
-    if(!pfnCreateDebugReportCallbackEXT)printf("failed to retrive vkCreateDebugReportCallbackEXT\n");
-
-    pfnDestroyDebugReportCallbackEXT = (PFN_vkDestroyDebugReportCallbackEXT)vkGetInstanceProcAddr(vkContext.instance, "vkDestroyDebugReportCallbackEXT");
-    if(!pfnDestroyDebugReportCallbackEXT)printf("failed to retrive vkDestroyDebugReportCallbackEXT\n");
-
-    VkDebugUtilsMessengerCreateInfoEXT debugutils_messenger_createinfo = {0};
-    debugutils_messenger_createinfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-    debugutils_messenger_createinfo.flags = 0;
-    debugutils_messenger_createinfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-    debugutils_messenger_createinfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-    debugutils_messenger_createinfo.pfnUserCallback = &vulkanDebugCallback;
-    debugutils_messenger_createinfo.pUserData = NULL;
-
-    
-    VkDebugReportCallbackCreateInfoEXT debugreport_callback_createinfo = {0};
-    debugreport_callback_createinfo.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
-    debugreport_callback_createinfo.flags = VK_DEBUG_REPORT_WARNING_BIT_EXT | VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT | VK_DEBUG_REPORT_ERROR_BIT_EXT |  VK_DEBUG_REPORT_DEBUG_BIT_EXT;
-    debugreport_callback_createinfo.pfnCallback = &vulkanDebugReportCallback;
-    debugreport_callback_createinfo.pUserData = NULL;
-    
-    VkResult createDebugUtilsResult = vkCreateDebugUtilsMessengerEXT(vkContext.instance, &debugutils_messenger_createinfo, NULL, &vkContext.pmessage);
-    _VkResultsCheck(createDebugUtilsResult, "vkCreateDebugUtilsMessenger");
-
-    VkResult createDebugReportCallbackResult = vkCreateDebugReportCallbackEXT(vkContext.instance, &debugreport_callback_createinfo, NULL, &vkContext.pCallback);
-    _VkResultsCheck(createDebugReportCallbackResult, "vkCreateDebugReportCallbackEXT");
-
-    VkResult CreateSurfaceResult = glfwCreateWindowSurface(vkContext.instance, window, NULL, &vkContext.surface);
-    _VkResultsCheck(CreateSurfaceResult, "Create surface");
-    
-    _vulakn_PhysicalDevices();
-
-    free(ppEnabledExtensionNames);
-    free(ppEnabledLayerNames);
-}
-
-VkImageView *pViewHandel = {0};
-uint32_t swapChainImageCount = 0;
-static void _vulkan_swapchain()
-{
-    VkExtent2D vksurface_dimension = {640, 480};
-    VkSwapchainCreateInfoKHR swapchain_createInfo = {0};
-    swapchain_createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    swapchain_createInfo.surface = vkContext.surface;
-    swapchain_createInfo.minImageCount = 3;
-    swapchain_createInfo.imageFormat = VK_FORMAT_B8G8R8A8_UNORM;
-    swapchain_createInfo.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-    swapchain_createInfo.imageExtent = vksurface_dimension; //look at vkGetPhysicalDeviceSurfaceCapabilitiesKHR later
-    swapchain_createInfo.imageArrayLayers = 1;
-    swapchain_createInfo.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    swapchain_createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    swapchain_createInfo.compositeAlpha = 0x00000001; //VkCompositeAlphaFlagBitsKHR.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
-    swapchain_createInfo.preTransform = 0x00000001; //VkSurfaceTransformFlagBitsKHR.VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
-    swapchain_createInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
-    swapchain_createInfo.oldSwapchain = VK_NULL_HANDLE;
-
-    VkResult createSwapResult = vkCreateSwapchainKHR(pDeviceHandel, &swapchain_createInfo, NULL, &pSwapchainHandel);
-    _VkResultsCheck(createSwapResult, "Create Swap chain");
-
-    VkResult swapChainImageResult = vkGetSwapchainImagesKHR(pDeviceHandel, pSwapchainHandel, &swapChainImageCount, NULL);
-    _VkResultsCheck(swapChainImageResult, "vkGetSwapchainImagesKHR count");
-
-    pSwapchainImagesHandel = malloc((swapChainImageCount+1) * sizeof(VkImage));
-    VkResult GetswapChainImageResult = vkGetSwapchainImagesKHR(pDeviceHandel, pSwapchainHandel, &swapChainImageCount, pSwapchainImagesHandel);
-    _VkResultsCheck(GetswapChainImageResult, "vkGetSwapchainImagesKHR");
-
-    pViewHandel = malloc((swapChainImageCount+1)*sizeof(VkImageView));
-    printf("%u\n",swapChainImageCount);
-    
+    vkDestroySwapchainKHR(_device, _swapchain, NULL);
     for(uint32_t i = 0; i < swapChainImageCount; i++)
     {
-        VkImageViewCreateInfo image_view_createinfo = {0};
-        image_view_createinfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        image_view_createinfo.image = pSwapchainImagesHandel[i];
-        image_view_createinfo.viewType = 1;
-        image_view_createinfo.format = VK_FORMAT_B8G8R8A8_UNORM;
-
-        image_view_createinfo.components.r = 3;
-        image_view_createinfo.components.g = 4;
-        image_view_createinfo.components.b = 5;
-        image_view_createinfo.components.a = 6;
-
-        image_view_createinfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        image_view_createinfo.subresourceRange.baseMipLevel = 0;
-        image_view_createinfo.subresourceRange.levelCount = 1;
-        image_view_createinfo.subresourceRange.baseArrayLayer = 0;
-        image_view_createinfo.subresourceRange.layerCount = 1;
-
-        VkResult CreateImageViewResult = vkCreateImageView(pDeviceHandel, &image_view_createinfo, NULL, &pViewHandel[i]);
+        vkDestroyImageView(_device, _imageview[i], NULL);
     }
-
-    free(pSwapchainImagesHandel);
-}
-
-void _vulakn_destory_swapchain()
-{
-    vkDestroySwapchainKHR(pDeviceHandel, pSwapchainHandel, NULL);
-    for(uint32_t i = 0; i < swapChainImageCount; i++)
-    {
-        vkDestroyImageView(pDeviceHandel, pViewHandel[i], NULL);
-    }
-    free(pViewHandel);
+    free(_imageview);
 }
 
 static void _vulkan_cleanup()
 {
+    vkDeviceWaitIdle(_device);
     _vulakn_destory_swapchain();
     vkDestroySurfaceKHR(vkContext.instance, vkContext.surface, NULL);
 
-    vkDeviceWaitIdle(pDeviceHandel);
+    vkDeviceWaitIdle(_device);
     for(uint32_t i = 0; i < FRAME_OVERLAP; i++)
     {
-        vkDestroyCommandPool(pDeviceHandel, frame_data[i]._commandPool, NULL);
+        vkDestroyCommandPool(_device, frame_data[i]._commandPool, NULL);
     }
 
-    vkDestroyDevice(pDeviceHandel, NULL);
+    vkDestroyDevice(_device, NULL);
     vkDestroyDebugUtilsMessengerEXT(vkContext.instance, vkContext.pmessage, NULL);
     vkDestroyDebugReportCallbackEXT(vkContext.instance, vkContext.pCallback, NULL);
     vkDestroyInstance(vkContext.instance, NULL);
-}
-
-
-static void _vulkan_initcommands()
-{
-    VkCommandPoolCreateInfo command_pool_createinfo = {0};
-    command_pool_createinfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    command_pool_createinfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    command_pool_createinfo.queueFamilyIndex = queueFamilyIndex;
-
-    for(uint32_t i = 0; i < FRAME_OVERLAP; i++)
-    {
-        VkResult createCommandPoolResult = vkCreateCommandPool(pDeviceHandel, &command_pool_createinfo, NULL, &frame_data[i]._commandPool);
-        _VkResultsCheck(createCommandPoolResult, "vkCreateCommandPool");
-
-        VkCommandBufferAllocateInfo command_bufferallo_createinfo = {0};
-        command_bufferallo_createinfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        command_bufferallo_createinfo.commandPool = frame_data[i]._commandPool;
-        command_bufferallo_createinfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        command_bufferallo_createinfo.commandBufferCount = 1;
-
-        VkResult allocateCommandBufferResult = vkAllocateCommandBuffers(pDeviceHandel, &command_bufferallo_createinfo, &frame_data[i]._mainCommandBuffer);
-    }
-}
-static void _vulkan_sync_structures()
-{
-    VkFenceCreateInfo fence_createinfo = {0};
-    fence_createinfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fence_createinfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-    VkSemaphoreCreateInfo semaphore_createinfo = {0};
-    semaphore_createinfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
-    for(uint32_t i = 0; i < FRAME_OVERLAP; i++)
-    {
-        VkResult createFenceResult = vkCreateFence(pDeviceHandel, &fence_createinfo, NULL, &frame_data[i]._renderFence);
-        _VkResultsCheck(createFenceResult, "vkCreateFence");
-
-        VkResult createSwapchainSemaphoreResult = vkCreateSemaphore(pDeviceHandel, &semaphore_createinfo, NULL, &frame_data[i]._swapchainSemaphore);
-        _VkResultsCheck(createSwapchainSemaphoreResult, "createSwapchainSemaphore");
-
-        VkResult createRenderSemaphoreResult = vkCreateSemaphore(pDeviceHandel, &semaphore_createinfo, NULL, &frame_data[i]._renderSemaphore);
-        _VkResultsCheck(createRenderSemaphoreResult, "createRenderSemaphore");
-    }
 }
