@@ -62,6 +62,8 @@ static void _vulkan_initcommands();
 static void _vulkan_sync_structures();
 static void _vulkan_cleanup();
 
+static void _VkResultsCheck(VkResult result, const char *from);
+
 struct _vulkan_instance
 {
     VkInstance instance;
@@ -73,11 +75,19 @@ static struct _vulkan_instance vkContext = {0};
 
 struct _vulakn_framedata
 {
-    VkCommandPool   _commandPool;
+    VkCommandPool       _commandPool;
     VkCommandBuffer   _mainCommandBuffer;
+
+    VkSemaphore _swapchainSemaphore, _renderSemaphore;
+	VkFence _renderFence;
 };
 static struct _vulakn_framedata frame_data[FRAME_OVERLAP] = {0};
+static int _framenumber = 0;
 
+
+VkDevice pDeviceHandel;
+VkSwapchainKHR pSwapchainHandel;
+VkImage *pSwapchainImagesHandel = {0};
 GLFWwindow* window;
 void VKEngine_init()
 {
@@ -108,8 +118,125 @@ void VkEngine_cleanup()
     }
 }
 
+static void transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout currLayout, VkImageLayout newLayout)
+{
+    VkImageMemoryBarrier2 image_barrier_createinfo = {0};
+    image_barrier_createinfo.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+
+    image_barrier_createinfo.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    image_barrier_createinfo.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+    image_barrier_createinfo.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    image_barrier_createinfo.dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT;
+
+    image_barrier_createinfo.oldLayout = currLayout;
+    image_barrier_createinfo.newLayout = newLayout;
+
+    VkImageAspectFlags aspectMask = (newLayout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+
+    VkImageSubresourceRange image_subresource_range = {0};
+    image_subresource_range.aspectMask = aspectMask;
+    image_subresource_range.baseMipLevel = 0;
+    image_subresource_range.levelCount = VK_REMAINING_MIP_LEVELS;
+    image_subresource_range.baseArrayLayer = 0;
+    image_subresource_range.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+    image_barrier_createinfo.subresourceRange = image_subresource_range;
+    image_barrier_createinfo.image = image;
+
+    VkDependencyInfo dependency_info = {0};
+    dependency_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dependency_info.imageMemoryBarrierCount = 1;
+    dependency_info.pImageMemoryBarriers = &image_barrier_createinfo;
+
+    vkCmdPipelineBarrier2(cmd, &dependency_info);
+}
+
+VkQueue _graphicsQueue;
 void VKEngine_draw()
 {
+    VkResult waitForFenceResult = vkWaitForFences(pDeviceHandel, 1, &frame_data[_framenumber % FRAME_OVERLAP]._renderFence, VK_TRUE, 1000000000);
+    _VkResultsCheck(waitForFenceResult, "vkWaitForFences");
+    VkResult resetFencesResult = vkResetFences(pDeviceHandel, 1, &frame_data[_framenumber % FRAME_OVERLAP]._renderFence);
+    _VkResultsCheck(resetFencesResult, "vkResetFences");
+
+    uint32_t swapchainImageIndex = 0;
+    VkResult acquireNextImageResult = vkAcquireNextImageKHR(pDeviceHandel, pSwapchainHandel, 1000000000, frame_data[_framenumber % FRAME_OVERLAP]._swapchainSemaphore, NULL, &swapchainImageIndex);
+    _VkResultsCheck(resetFencesResult, "vkResetFences");
+
+    VkCommandBufferBeginInfo command_bufferbegin_createinfo = {0};
+    command_bufferbegin_createinfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    command_bufferbegin_createinfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    VkCommandBuffer cmd = frame_data[_framenumber & FRAME_OVERLAP]._mainCommandBuffer;
+    VkResult resetCommandBufferResult = vkResetCommandBuffer(cmd, 0);
+    VkResult beginCommandBufferResult = vkBeginCommandBuffer(cmd, &command_bufferbegin_createinfo);
+
+    transition_image(cmd, pSwapchainImagesHandel[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    VkClearColorValue clearValue = {0};
+    clearValue.float32[1] = 0.0f;
+    clearValue.float32[2] = 0.0f;
+    clearValue.float32[3] = 1.0f;
+    clearValue.float32[4] = 1.0f;
+
+    VkImageSubresourceRange clear_range = {0};
+    clear_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    clear_range.baseMipLevel = 0;
+    clear_range.levelCount = VK_REMAINING_MIP_LEVELS;
+    clear_range.baseArrayLayer = 0;
+    clear_range.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+    vkCmdClearColorImage(cmd, pSwapchainImagesHandel[swapchainImageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clear_range);
+    transition_image(cmd, pSwapchainImagesHandel[swapchainImageIndex], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
+    VkResult endCommandBuffer = vkEndCommandBuffer(cmd);
+    _VkResultsCheck(endCommandBuffer, "vkEndCommandBuffer");
+
+    VkSemaphoreSubmitInfo waitsemaphore_submit_info = {0};
+    waitsemaphore_submit_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    waitsemaphore_submit_info.semaphore = frame_data[_framenumber % FRAME_OVERLAP]._swapchainSemaphore;
+    waitsemaphore_submit_info.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR;
+    waitsemaphore_submit_info.deviceIndex = 0;
+    waitsemaphore_submit_info.value = 1;
+
+    VkSemaphoreSubmitInfo rendersemaphore_submit_info = {0};
+    rendersemaphore_submit_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    rendersemaphore_submit_info.semaphore = frame_data[_framenumber % FRAME_OVERLAP]._renderSemaphore;
+    rendersemaphore_submit_info.stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+    rendersemaphore_submit_info.deviceIndex = 0;
+    rendersemaphore_submit_info.value = 1;
+
+
+    VkCommandBufferSubmitInfo command_submit_info = {0};
+    command_submit_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+    command_submit_info.commandBuffer = cmd;
+    command_submit_info.deviceMask = 0;
+
+    VkSubmitInfo2 submit_info = {0};
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit_info.waitSemaphoreInfoCount = &waitsemaphore_submit_info == NULL ? 0: 1;
+    submit_info.pWaitSemaphoreInfos = &waitsemaphore_submit_info;
+
+    submit_info.signalSemaphoreInfoCount = &rendersemaphore_submit_info == NULL ? 0 : 1;
+    submit_info.pSignalSemaphoreInfos = &rendersemaphore_submit_info;
+
+    submit_info.commandBufferInfoCount = 1;
+    submit_info.pCommandBufferInfos = &command_submit_info;
+
+    VkResult queue_submit = vkQueueSubmit2(_graphicsQueue, 1, &submit_info, frame_data[_framenumber % FRAME_OVERLAP]._renderFence);
+    _VkResultsCheck(queue_submit, "vkQueueSubmit2");
+
+    VkPresentInfoKHR present_info = {0};
+    present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    present_info.pSwapchains = &pSwapchainHandel;
+    present_info.swapchainCount = 1;
+
+    present_info.pWaitSemaphores = &frame_data[_framenumber % FRAME_OVERLAP]._renderSemaphore;
+    present_info.waitSemaphoreCount = 1;
+
+    present_info.pImageIndices = &swapchainImageIndex;
+
+    VkResult queue_present = vkQueuePresentKHR(_graphicsQueue, &present_info);
+    _framenumber ++;
 }
 
 void VkEngine_run()
@@ -160,8 +287,6 @@ static void _VkResultsCheck(VkResult result, const char *from)
 }
 
 
-VkDevice pDeviceHandel;
-VkSwapchainKHR pSwapchainHandel;
 //VkSurfaceFormat2KHR *pSurfaceFormats = {0};
 uint32_t queueFamilyIndex  = 0;
 /*Device and Queues*/
@@ -234,6 +359,9 @@ static void _vulakn_PhysicalDevices()
         //think about adding the ablity to choose what device to use. later
     }
 
+    VkPhysicalDeviceVulkan13Features vulkan_13_features  ={0};
+    vulkan_13_features.synchronization2 = VK_TRUE;
+
     float queuePriority = 1.0f;
     VkDeviceQueueCreateInfo queue_create_info = {0};
     queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
@@ -243,12 +371,13 @@ static void _vulakn_PhysicalDevices()
     
 
 
-    const char* enabled_extensions[1] = {"VK_KHR_swapchain"};
+    const char* enabled_extensions[2] = {"VK_KHR_swapchain", "VK_KHR_synchronization2"};
     VkDeviceCreateInfo create_info = {0};
     create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    create_info.pNext = &vulkan_13_features;
     create_info.queueCreateInfoCount = 1;
     create_info.pQueueCreateInfos = &queue_create_info;
-    create_info.enabledExtensionCount = 1;
+    create_info.enabledExtensionCount = 2;
     create_info.ppEnabledExtensionNames = enabled_extensions;
 
 
@@ -392,7 +521,7 @@ static void _vulkan_swapchain()
     VkResult swapChainImageResult = vkGetSwapchainImagesKHR(pDeviceHandel, pSwapchainHandel, &swapChainImageCount, NULL);
     _VkResultsCheck(swapChainImageResult, "vkGetSwapchainImagesKHR count");
 
-    VkImage *pSwapchainImagesHandel = malloc((swapChainImageCount+1) * sizeof(VkImage));
+    pSwapchainImagesHandel = malloc((swapChainImageCount+1) * sizeof(VkImage));
     VkResult GetswapChainImageResult = vkGetSwapchainImagesKHR(pDeviceHandel, pSwapchainHandel, &swapChainImageCount, pSwapchainImagesHandel);
     _VkResultsCheck(GetswapChainImageResult, "vkGetSwapchainImagesKHR");
 
@@ -475,5 +604,22 @@ static void _vulkan_initcommands()
 }
 static void _vulkan_sync_structures()
 {
+    VkFenceCreateInfo fence_createinfo = {0};
+    fence_createinfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_createinfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
+    VkSemaphoreCreateInfo semaphore_createinfo = {0};
+    semaphore_createinfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    for(uint32_t i = 0; i < FRAME_OVERLAP; i++)
+    {
+        VkResult createFenceResult = vkCreateFence(pDeviceHandel, &fence_createinfo, NULL, &frame_data[i]._renderFence);
+        _VkResultsCheck(createFenceResult, "vkCreateFence");
+
+        VkResult createSwapchainSemaphoreResult = vkCreateSemaphore(pDeviceHandel, &semaphore_createinfo, NULL, &frame_data[i]._swapchainSemaphore);
+        _VkResultsCheck(createSwapchainSemaphoreResult, "createSwapchainSemaphore");
+
+        VkResult createRenderSemaphoreResult = vkCreateSemaphore(pDeviceHandel, &semaphore_createinfo, NULL, &frame_data[i]._renderSemaphore);
+        _VkResultsCheck(createRenderSemaphoreResult, "createRenderSemaphore");
+    }
 }
