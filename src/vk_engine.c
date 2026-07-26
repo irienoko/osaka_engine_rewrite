@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 
 #include "vk_engine.h"
 
@@ -54,16 +55,16 @@ void VkEngine_cleanup()
 
 void VKEngine_draw()
 {
-    _vulakn_draw();
-    while(!glfwWindowShouldClose(window))
-    {
-        glfwPollEvents();
-    }
+    
 }
 
 void VkEngine_run()
 {
-
+    while(!glfwWindowShouldClose(window))
+    {
+        glfwPollEvents();
+        _vulakn_draw();
+    }
 }
 
 
@@ -129,7 +130,7 @@ static struct _vulkan_instance vkContext = {0};
 struct _vulakn_framedata
 {
     VkCommandPool       _commandPool;
-    VkCommandBuffer   _mainCommandBuffer;
+    VkCommandBuffer     _mainCommandBuffer;
 
     VkSemaphore _swapchainSemaphore, _renderSemaphore;
 	VkFence _renderFence;
@@ -216,6 +217,7 @@ static void transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout c
 
 
 uint32_t queueFamilyIndex = 0;
+uint32_t queue_graphics_family;
 VkDevice _device;
 VkSwapchainKHR _swapchain;
 VkImage *_swapchain_image = {0};
@@ -274,7 +276,11 @@ static void _vulakn_choosedevice()
                 {
                     //printf("use device: %s by default\n", pProperties.properties.deviceName);
                     printf("VK_QUEUE_GRAPHICS_BIT, QUEUECOUNT: %u INDEX: %u DEVICE NAME: %s\n", pQueueFamilyProperties[Q].queueFamilyProperties.queueCount, Q, pProperties.properties.deviceName);
-                    queueFamilyIndex = Q;
+
+                    if(pQueueFamilyProperties[Q].queueFamilyProperties.queueFlags == VK_QUEUE_GRAPHICS_BIT)
+                    {
+                        queueFamilyIndex = Q;
+                    }
                     SELECTED_GPU_INDEX = i;
                 }else
                 {
@@ -320,6 +326,7 @@ static void _vulakn_choosedevice()
     physical_device_surface_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR;
     physical_device_surface_info.surface = vkContext.surface;
 
+    printf("graphics family %u\n", queue_graphics_family);
     vkGetDeviceQueue(_device, queueFamilyIndex, 0, &_graphicsQueue);
     /*
     VkResult PhysicalDeviceSurfaceFormatCountResult = vkGetPhysicalDeviceSurfaceFormats2KHR(pPhysicalDevices[SELECTED_GPU_INDEX], &physical_device_surface_info, &pSurfaceFormatCount, NULL);
@@ -527,6 +534,7 @@ static void _vulkan_sync_structures()
 
 static void _vulakn_draw()
 {
+    
     VkResult waitForFenceResult = vkWaitForFences(_device, 1, &frame_data[_framenumber % FRAME_OVERLAP]._renderFence, VK_TRUE, 1000000000);
     _vulakn_checkresult(waitForFenceResult, "vkWaitForFences");
     VkResult resetFencesResult = vkResetFences(_device, 1, &frame_data[_framenumber % FRAME_OVERLAP]._renderFence);
@@ -540,16 +548,20 @@ static void _vulakn_draw()
     command_bufferbegin_createinfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     command_bufferbegin_createinfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-    VkCommandBuffer cmd = frame_data[_framenumber & FRAME_OVERLAP]._mainCommandBuffer;
+    VkCommandBuffer cmd = frame_data[_framenumber % FRAME_OVERLAP]._mainCommandBuffer;
     VkResult resetCommandBufferResult = vkResetCommandBuffer(cmd, 0);
+    _vulakn_checkresult(resetCommandBufferResult, "vkResetCommandBuffer");
     VkResult beginCommandBufferResult = vkBeginCommandBuffer(cmd, &command_bufferbegin_createinfo);
+    _vulakn_checkresult(beginCommandBufferResult, "vkBeginCommandBuffer");
 
     transition_image(cmd, _swapchain_image[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    float flash = sin(_framenumber / 120.0f);
+    printf("flash: %f\n", flash);
     VkClearColorValue clearValue = {0};
-    clearValue.float32[1] = 0.0f;
-    clearValue.float32[2] = 1.0f;
+    clearValue.float32[0] = flash;
+    clearValue.float32[1] = flash;
+    clearValue.float32[2] = 0.0f;
     clearValue.float32[3] = 1.0f;
-    clearValue.float32[4] = 1.0f;
 
     VkImageSubresourceRange clear_range = {0};
     clear_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -609,6 +621,7 @@ static void _vulakn_draw()
     present_info.pImageIndices = &swapchainImageIndex;
 
     VkResult queue_present = vkQueuePresentKHR(_graphicsQueue, &present_info);
+    _vulakn_checkresult(queue_present, "vkQueuePresentKHR");
     _framenumber ++;
 }
 
@@ -632,6 +645,9 @@ static void _vulkan_cleanup()
     vkDeviceWaitIdle(_device);
     for(uint32_t i = 0; i < FRAME_OVERLAP; i++)
     {
+        vkDestroyFence(_device, frame_data[i]._renderFence, NULL);
+        vkDestroySemaphore(_device, frame_data[i]._renderSemaphore, NULL);
+        vkDestroySemaphore(_device, frame_data[i]._swapchainSemaphore, NULL);
         vkDestroyCommandPool(_device, frame_data[i]._commandPool, NULL);
     }
 
