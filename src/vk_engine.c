@@ -117,7 +117,7 @@ VKAPI_ATTR void VKAPI_CALL vkDestroyDebugReportCallbackEXT( VkInstance instance,
 /*###################################################################################################################################*
 *---------------------------------------------------------Vulkan Debug end-----------------------------------------------------------*
 *####################################################################################################################################*/
-
+static int _framenumber = 0;
 struct _vulkan_instance
 {
     VkInstance instance;
@@ -136,9 +136,21 @@ struct _vulakn_framedata
 	VkFence _renderFence;
 };
 static struct _vulakn_framedata frame_data[FRAME_OVERLAP] = {0};
-static int _framenumber = 0;
 
-VkQueue _graphicsQueue;
+struct _vulkan_renderdata
+{
+    VkQueue _graphicsQueue;
+    VkDevice _device;
+    VkSwapchainKHR _swapchain;
+
+    VkImage *p_swapchain_image;
+    VkImageView *p_imageview;
+
+    uint32_t swapchain_imagecount;
+    uint32_t queue_graphics_family;
+};
+static struct _vulkan_renderdata renderer_data = {0};
+
 static void _vulakn_checkresult(VkResult result, const char *from)
 {
     switch(result)
@@ -216,11 +228,6 @@ static void transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout c
 }
 
 
-uint32_t queueFamilyIndex = 0;
-uint32_t queue_graphics_family;
-VkDevice _device;
-VkSwapchainKHR _swapchain;
-VkImage *_swapchain_image = {0};
 static void _vulakn_choosedevice()
 {
     uint32_t pPhysicalDeviceCount = 0;
@@ -279,7 +286,7 @@ static void _vulakn_choosedevice()
 
                     if(pQueueFamilyProperties[Q].queueFamilyProperties.queueFlags == VK_QUEUE_GRAPHICS_BIT)
                     {
-                        queueFamilyIndex = Q;
+                        renderer_data.queue_graphics_family = Q;
                     }
                     SELECTED_GPU_INDEX = i;
                 }else
@@ -300,7 +307,7 @@ static void _vulakn_choosedevice()
     float queuePriority = 1.0f;
     VkDeviceQueueCreateInfo queue_create_info = {0};
     queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queue_create_info.queueFamilyIndex = queueFamilyIndex;
+    queue_create_info.queueFamilyIndex = renderer_data.queue_graphics_family;
     queue_create_info.queueCount = 1;
     queue_create_info.pQueuePriorities = &queuePriority;
     
@@ -317,7 +324,7 @@ static void _vulakn_choosedevice()
 
 
     printf("selected gpu index %u\n",SELECTED_GPU_INDEX);
-    VkResult CreateDeviceResult = vkCreateDevice(pPhysicalDevices[SELECTED_GPU_INDEX], &create_info, NULL, &_device);
+    VkResult CreateDeviceResult = vkCreateDevice(pPhysicalDevices[SELECTED_GPU_INDEX], &create_info, NULL, &renderer_data._device);
     _vulakn_checkresult(CreateDeviceResult, "Create Device");
 
     
@@ -326,8 +333,7 @@ static void _vulakn_choosedevice()
     physical_device_surface_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR;
     physical_device_surface_info.surface = vkContext.surface;
 
-    printf("graphics family %u\n", queue_graphics_family);
-    vkGetDeviceQueue(_device, queueFamilyIndex, 0, &_graphicsQueue);
+    vkGetDeviceQueue(renderer_data._device, renderer_data.queue_graphics_family, 0, &renderer_data._graphicsQueue);
     /*
     VkResult PhysicalDeviceSurfaceFormatCountResult = vkGetPhysicalDeviceSurfaceFormats2KHR(pPhysicalDevices[SELECTED_GPU_INDEX], &physical_device_surface_info, &pSurfaceFormatCount, NULL);
     _VkResultsCheck(PhysicalDeviceSurfaceFormatCountResult, "Physical Device Surface Format count");
@@ -432,8 +438,6 @@ static void _vulakn_init()
     free(ppEnabledLayerNames);
 }
 
-VkImageView *_imageview = {0};
-uint32_t swapChainImageCount = 0;
 static void _vulkan_swapchain()
 {
     VkExtent2D vksurface_dimension = {640, 480};
@@ -452,24 +456,23 @@ static void _vulkan_swapchain()
     swapchain_createInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
     swapchain_createInfo.oldSwapchain = VK_NULL_HANDLE;
 
-    VkResult createSwapResult = vkCreateSwapchainKHR(_device, &swapchain_createInfo, NULL, &_swapchain);
+    VkResult createSwapResult = vkCreateSwapchainKHR(renderer_data._device, &swapchain_createInfo, NULL, &renderer_data._swapchain);
     _vulakn_checkresult(createSwapResult, "Create Swap chain");
 
-    VkResult swapChainImageResult = vkGetSwapchainImagesKHR(_device, _swapchain, &swapChainImageCount, NULL);
+    VkResult swapChainImageResult = vkGetSwapchainImagesKHR(renderer_data._device, renderer_data._swapchain, &renderer_data.swapchain_imagecount, NULL);
     _vulakn_checkresult(swapChainImageResult, "vkGetSwapchainImagesKHR count");
 
-    _swapchain_image = malloc((swapChainImageCount+1) * sizeof(VkImage));
-    VkResult GetswapChainImageResult = vkGetSwapchainImagesKHR(_device, _swapchain, &swapChainImageCount, _swapchain_image);
+    renderer_data.p_swapchain_image = malloc((renderer_data.swapchain_imagecount+1) * sizeof(VkImage));
+    VkResult GetswapChainImageResult = vkGetSwapchainImagesKHR(renderer_data._device, renderer_data._swapchain, &renderer_data.swapchain_imagecount, renderer_data.p_swapchain_image);
     _vulakn_checkresult(GetswapChainImageResult, "vkGetSwapchainImagesKHR");
 
-    _imageview = malloc((swapChainImageCount+1)*sizeof(VkImageView));
-    printf("%u\n",swapChainImageCount);
+    renderer_data.p_imageview = malloc((renderer_data.swapchain_imagecount+1)*sizeof(VkImageView));
     
-    for(uint32_t i = 0; i < swapChainImageCount; i++)
+    for(uint32_t i = 0; i < renderer_data.swapchain_imagecount; i++)
     {
         VkImageViewCreateInfo image_view_createinfo = {0};
         image_view_createinfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        image_view_createinfo.image = _swapchain_image[i];
+        image_view_createinfo.image = renderer_data.p_swapchain_image[i];
         image_view_createinfo.viewType = 1;
         image_view_createinfo.format = VK_FORMAT_B8G8R8A8_UNORM;
 
@@ -484,7 +487,7 @@ static void _vulkan_swapchain()
         image_view_createinfo.subresourceRange.baseArrayLayer = 0;
         image_view_createinfo.subresourceRange.layerCount = 1;
 
-        VkResult CreateImageViewResult = vkCreateImageView(_device, &image_view_createinfo, NULL, &_imageview[i]);
+        VkResult CreateImageViewResult = vkCreateImageView(renderer_data._device, &image_view_createinfo, NULL, &renderer_data.p_imageview[i]);
     }
 }
 
@@ -493,11 +496,11 @@ static void _vulkan_initcommands()
     VkCommandPoolCreateInfo command_pool_createinfo = {0};
     command_pool_createinfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     command_pool_createinfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    command_pool_createinfo.queueFamilyIndex = queueFamilyIndex;
+    command_pool_createinfo.queueFamilyIndex = renderer_data.queue_graphics_family;
 
     for(uint32_t i = 0; i < FRAME_OVERLAP; i++)
     {
-        VkResult createCommandPoolResult = vkCreateCommandPool(_device, &command_pool_createinfo, NULL, &frame_data[i]._commandPool);
+        VkResult createCommandPoolResult = vkCreateCommandPool(renderer_data._device, &command_pool_createinfo, NULL, &frame_data[i]._commandPool);
         _vulakn_checkresult(createCommandPoolResult, "vkCreateCommandPool");
 
         VkCommandBufferAllocateInfo command_bufferallo_createinfo = {0};
@@ -506,7 +509,7 @@ static void _vulkan_initcommands()
         command_bufferallo_createinfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         command_bufferallo_createinfo.commandBufferCount = 1;
 
-        VkResult allocateCommandBufferResult = vkAllocateCommandBuffers(_device, &command_bufferallo_createinfo, &frame_data[i]._mainCommandBuffer);
+        VkResult allocateCommandBufferResult = vkAllocateCommandBuffers(renderer_data._device, &command_bufferallo_createinfo, &frame_data[i]._mainCommandBuffer);
     }
 }
 
@@ -521,27 +524,38 @@ static void _vulkan_sync_structures()
 
     for(uint32_t i = 0; i < FRAME_OVERLAP; i++)
     {
-        VkResult createFenceResult = vkCreateFence(_device, &fence_createinfo, NULL, &frame_data[i]._renderFence);
+        VkResult createFenceResult = vkCreateFence(renderer_data._device, &fence_createinfo, NULL, &frame_data[i]._renderFence);
         _vulakn_checkresult(createFenceResult, "vkCreateFence");
 
-        VkResult createSwapchainSemaphoreResult = vkCreateSemaphore(_device, &semaphore_createinfo, NULL, &frame_data[i]._swapchainSemaphore);
+        VkResult createSwapchainSemaphoreResult = vkCreateSemaphore(renderer_data._device, &semaphore_createinfo, NULL, &frame_data[i]._swapchainSemaphore);
         _vulakn_checkresult(createSwapchainSemaphoreResult, "createSwapchainSemaphore");
 
-        VkResult createRenderSemaphoreResult = vkCreateSemaphore(_device, &semaphore_createinfo, NULL, &frame_data[i]._renderSemaphore);
+        VkResult createRenderSemaphoreResult = vkCreateSemaphore(renderer_data._device, &semaphore_createinfo, NULL, &frame_data[i]._renderSemaphore);
         _vulakn_checkresult(createRenderSemaphoreResult, "createRenderSemaphore");
     }
+}
+
+static VkSemaphoreSubmitInfo _create_semaphore_submit_info(VkPipelineStageFlags2 flags, VkSemaphore semaphore)
+{
+    VkSemaphoreSubmitInfo info = {0};
+    info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    info.semaphore = semaphore;
+    info.stageMask = flags;
+    info.deviceIndex = 0;
+    info.value = 1;
+    return info;
 }
 
 static void _vulakn_draw()
 {
     
-    VkResult waitForFenceResult = vkWaitForFences(_device, 1, &frame_data[_framenumber % FRAME_OVERLAP]._renderFence, VK_TRUE, 1000000000);
+    VkResult waitForFenceResult = vkWaitForFences(renderer_data._device, 1, &frame_data[_framenumber % FRAME_OVERLAP]._renderFence, VK_TRUE, 1000000000);
     _vulakn_checkresult(waitForFenceResult, "vkWaitForFences");
-    VkResult resetFencesResult = vkResetFences(_device, 1, &frame_data[_framenumber % FRAME_OVERLAP]._renderFence);
+    VkResult resetFencesResult = vkResetFences(renderer_data._device, 1, &frame_data[_framenumber % FRAME_OVERLAP]._renderFence);
     _vulakn_checkresult(resetFencesResult, "vkResetFences");
 
     uint32_t swapchainImageIndex = 0;
-    VkResult acquireNextImageResult = vkAcquireNextImageKHR(_device, _swapchain, 1000000000, frame_data[_framenumber % FRAME_OVERLAP]._swapchainSemaphore, NULL, &swapchainImageIndex);
+    VkResult acquireNextImageResult = vkAcquireNextImageKHR(renderer_data._device, renderer_data._swapchain, 1000000000, frame_data[_framenumber % FRAME_OVERLAP]._swapchainSemaphore, NULL, &swapchainImageIndex);
     _vulakn_checkresult(resetFencesResult, "vkResetFences");
 
     VkCommandBufferBeginInfo command_bufferbegin_createinfo = {0};
@@ -554,7 +568,7 @@ static void _vulakn_draw()
     VkResult beginCommandBufferResult = vkBeginCommandBuffer(cmd, &command_bufferbegin_createinfo);
     _vulakn_checkresult(beginCommandBufferResult, "vkBeginCommandBuffer");
 
-    transition_image(cmd, _swapchain_image[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    transition_image(cmd, renderer_data.p_swapchain_image[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
     float flash = sin(_framenumber / 120.0f);
     printf("flash: %f\n", flash);
     VkClearColorValue clearValue = {0};
@@ -570,25 +584,15 @@ static void _vulakn_draw()
     clear_range.baseArrayLayer = 0;
     clear_range.layerCount = VK_REMAINING_ARRAY_LAYERS;
 
-    vkCmdClearColorImage(cmd, _swapchain_image[swapchainImageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clear_range);
-    transition_image(cmd, _swapchain_image[swapchainImageIndex], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    vkCmdClearColorImage(cmd, renderer_data.p_swapchain_image[swapchainImageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clear_range);
+    transition_image(cmd, renderer_data.p_swapchain_image[swapchainImageIndex], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
     VkResult endCommandBuffer = vkEndCommandBuffer(cmd);
     _vulakn_checkresult(endCommandBuffer, "vkEndCommandBuffer");
 
-    VkSemaphoreSubmitInfo waitsemaphore_submit_info = {0};
-    waitsemaphore_submit_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-    waitsemaphore_submit_info.semaphore = frame_data[_framenumber % FRAME_OVERLAP]._swapchainSemaphore;
-    waitsemaphore_submit_info.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR;
-    waitsemaphore_submit_info.deviceIndex = 0;
-    waitsemaphore_submit_info.value = 1;
 
-    VkSemaphoreSubmitInfo rendersemaphore_submit_info = {0};
-    rendersemaphore_submit_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-    rendersemaphore_submit_info.semaphore = frame_data[_framenumber % FRAME_OVERLAP]._renderSemaphore;
-    rendersemaphore_submit_info.stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
-    rendersemaphore_submit_info.deviceIndex = 0;
-    rendersemaphore_submit_info.value = 1;
+    VkSemaphoreSubmitInfo waitsemaphore_submit_info     = _create_semaphore_submit_info(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR, frame_data[_framenumber % FRAME_OVERLAP]._swapchainSemaphore);
+    VkSemaphoreSubmitInfo rendersemaphore_submit_info   = _create_semaphore_submit_info(VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, frame_data[_framenumber % FRAME_OVERLAP]._renderSemaphore);
 
 
     VkCommandBufferSubmitInfo command_submit_info = {0};
@@ -607,12 +611,12 @@ static void _vulakn_draw()
     submit_info.commandBufferInfoCount = 1;
     submit_info.pCommandBufferInfos = &command_submit_info;
 
-    VkResult queue_submit = vkQueueSubmit2(_graphicsQueue, 1, &submit_info, frame_data[_framenumber % FRAME_OVERLAP]._renderFence);
+    VkResult queue_submit = vkQueueSubmit2(renderer_data._graphicsQueue, 1, &submit_info, frame_data[_framenumber % FRAME_OVERLAP]._renderFence);
     _vulakn_checkresult(queue_submit, "vkQueueSubmit2");
 
     VkPresentInfoKHR present_info = {0};
     present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    present_info.pSwapchains = &_swapchain;
+    present_info.pSwapchains = &renderer_data._swapchain;
     present_info.swapchainCount = 1;
 
     present_info.pWaitSemaphores = &frame_data[_framenumber % FRAME_OVERLAP]._renderSemaphore;
@@ -620,7 +624,7 @@ static void _vulakn_draw()
 
     present_info.pImageIndices = &swapchainImageIndex;
 
-    VkResult queue_present = vkQueuePresentKHR(_graphicsQueue, &present_info);
+    VkResult queue_present = vkQueuePresentKHR(renderer_data._graphicsQueue, &present_info);
     _vulakn_checkresult(queue_present, "vkQueuePresentKHR");
     _framenumber ++;
 }
@@ -628,30 +632,30 @@ static void _vulakn_draw()
 
 static void _vulakn_destory_swapchain()
 {
-    vkDestroySwapchainKHR(_device, _swapchain, NULL);
-    for(uint32_t i = 0; i < swapChainImageCount; i++)
+    vkDestroySwapchainKHR(renderer_data._device, renderer_data._swapchain, NULL);
+    for(uint32_t i = 0; i < renderer_data.swapchain_imagecount; i++)
     {
-        vkDestroyImageView(_device, _imageview[i], NULL);
+        vkDestroyImageView(renderer_data._device, renderer_data.p_imageview[i], NULL);
     }
-    free(_imageview);
+    free(renderer_data.p_imageview);
 }
 
 static void _vulkan_cleanup()
 {
-    vkDeviceWaitIdle(_device);
+    vkDeviceWaitIdle(renderer_data._device);
     _vulakn_destory_swapchain();
     vkDestroySurfaceKHR(vkContext.instance, vkContext.surface, NULL);
 
-    vkDeviceWaitIdle(_device);
+    vkDeviceWaitIdle(renderer_data._device);
     for(uint32_t i = 0; i < FRAME_OVERLAP; i++)
     {
-        vkDestroyFence(_device, frame_data[i]._renderFence, NULL);
-        vkDestroySemaphore(_device, frame_data[i]._renderSemaphore, NULL);
-        vkDestroySemaphore(_device, frame_data[i]._swapchainSemaphore, NULL);
-        vkDestroyCommandPool(_device, frame_data[i]._commandPool, NULL);
+        vkDestroyFence(renderer_data._device, frame_data[i]._renderFence, NULL);
+        vkDestroySemaphore(renderer_data._device, frame_data[i]._renderSemaphore, NULL);
+        vkDestroySemaphore(renderer_data._device, frame_data[i]._swapchainSemaphore, NULL);
+        vkDestroyCommandPool(renderer_data._device, frame_data[i]._commandPool, NULL);
     }
 
-    vkDestroyDevice(_device, NULL);
+    vkDestroyDevice(renderer_data._device, NULL);
     vkDestroyDebugUtilsMessengerEXT(vkContext.instance, vkContext.pmessage, NULL);
     vkDestroyDebugReportCallbackEXT(vkContext.instance, vkContext.pCallback, NULL);
     vkDestroyInstance(vkContext.instance, NULL);
